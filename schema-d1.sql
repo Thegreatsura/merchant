@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS orders (
   id TEXT PRIMARY KEY,
   store_id TEXT NOT NULL REFERENCES stores(id),
   number TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'paid' CHECK (status IN ('paid', 'refunded', 'canceled')),
+  status TEXT NOT NULL DEFAULT 'paid' CHECK (status IN ('pending', 'paid', 'processing', 'shipped', 'delivered', 'refunded', 'canceled')),
   customer_email TEXT NOT NULL,
   ship_to TEXT,
   subtotal_cents INTEGER NOT NULL,
@@ -107,6 +107,9 @@ CREATE TABLE IF NOT EXISTS orders (
   shipping_cents INTEGER NOT NULL DEFAULT 0,
   total_cents INTEGER NOT NULL,
   currency TEXT NOT NULL DEFAULT 'USD',
+  tracking_number TEXT,
+  tracking_url TEXT,
+  shipped_at TEXT,
   stripe_checkout_session_id TEXT,
   stripe_payment_intent_id TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))

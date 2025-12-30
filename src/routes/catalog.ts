@@ -19,10 +19,33 @@ catalogRoutes.get('/', async (c) => {
   const { store } = c.get('auth');
   const db = getDb(c.env);
 
-  const products = await db.query<any>(
-    `SELECT * FROM products WHERE store_id = ? ORDER BY created_at DESC`,
-    [store.id]
-  );
+  // Pagination params
+  const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
+  const cursor = c.req.query('cursor');
+  const status = c.req.query('status'); // Filter by status
+
+  // Build query
+  let query = `SELECT * FROM products WHERE store_id = ?`;
+  const params: unknown[] = [store.id];
+
+  if (status) {
+    query += ` AND status = ?`;
+    params.push(status);
+  }
+
+  if (cursor) {
+    query += ` AND created_at < ?`;
+    params.push(cursor);
+  }
+
+  query += ` ORDER BY created_at DESC LIMIT ?`;
+  params.push(limit + 1); // Fetch one extra to check for next page
+
+  const products = await db.query<any>(query, params);
+
+  // Check if there's a next page
+  const hasMore = products.length > limit;
+  if (hasMore) products.pop();
 
   const items = await Promise.all(
     products.map(async (p) => {
@@ -47,7 +70,15 @@ catalogRoutes.get('/', async (c) => {
     })
   );
 
-  return c.json({ items });
+  const nextCursor = hasMore && items.length > 0 ? items[items.length - 1].created_at : null;
+
+  return c.json({
+    items,
+    pagination: {
+      has_more: hasMore,
+      next_cursor: nextCursor,
+    },
+  });
 });
 
 // GET /v1/products/:id

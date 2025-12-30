@@ -20,10 +20,39 @@ ordersRoutes.get('/', async (c) => {
   const { store } = c.get('auth');
   const db = getDb(c.env);
 
-  const orderList = await db.query<any>(
-    `SELECT * FROM orders WHERE store_id = ? ORDER BY created_at DESC`,
-    [store.id]
-  );
+  // Pagination params
+  const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
+  const cursor = c.req.query('cursor');
+  const status = c.req.query('status'); // Filter by status
+  const email = c.req.query('email'); // Filter by customer email
+
+  // Build query
+  let query = `SELECT * FROM orders WHERE store_id = ?`;
+  const params: unknown[] = [store.id];
+
+  if (status) {
+    query += ` AND status = ?`;
+    params.push(status);
+  }
+
+  if (email) {
+    query += ` AND customer_email = ?`;
+    params.push(email);
+  }
+
+  if (cursor) {
+    query += ` AND created_at < ?`;
+    params.push(cursor);
+  }
+
+  query += ` ORDER BY created_at DESC LIMIT ?`;
+  params.push(limit + 1); // Fetch one extra to check for next page
+
+  const orderList = await db.query<any>(query, params);
+
+  // Check if there's a next page
+  const hasMore = orderList.length > limit;
+  if (hasMore) orderList.pop();
 
   const items = await Promise.all(
     orderList.map(async (order) => {
@@ -35,7 +64,15 @@ ordersRoutes.get('/', async (c) => {
     })
   );
 
-  return c.json({ items });
+  const nextCursor = hasMore && items.length > 0 ? items[items.length - 1].created_at : null;
+
+  return c.json({
+    items,
+    pagination: {
+      has_more: hasMore,
+      next_cursor: nextCursor,
+    },
+  });
 });
 
 // GET /v1/orders/:orderId
@@ -53,6 +90,67 @@ ordersRoutes.get('/:orderId', async (c) => {
   const orderItems = await db.query<any>(`SELECT * FROM order_items WHERE order_id = ?`, [order.id]);
 
   return c.json(formatOrder(order, orderItems));
+});
+
+// PATCH /v1/orders/:orderId - Update order status/tracking
+ordersRoutes.patch('/:orderId', async (c) => {
+  const orderId = c.req.param('orderId');
+  const body = await c.req.json().catch(() => ({}));
+  const { status, tracking_number, tracking_url } = body;
+
+  const { store } = c.get('auth');
+  const db = getDb(c.env);
+
+  const [order] = await db.query<any>(
+    `SELECT * FROM orders WHERE id = ? AND store_id = ?`,
+    [orderId, store.id]
+  );
+  if (!order) throw ApiError.notFound('Order not found');
+
+  const validStatuses = ['pending', 'paid', 'processing', 'shipped', 'delivered', 'refunded', 'canceled'];
+  const updates: string[] = [];
+  const params: unknown[] = [];
+
+  if (status !== undefined) {
+    if (!validStatuses.includes(status)) {
+      throw ApiError.invalidRequest(`status must be one of: ${validStatuses.join(', ')}`);
+    }
+    updates.push('status = ?');
+    params.push(status);
+
+    // Auto-set shipped_at when status changes to shipped
+    if (status === 'shipped' && !order.shipped_at) {
+      updates.push('shipped_at = ?');
+      params.push(now());
+    }
+  }
+
+  if (tracking_number !== undefined) {
+    updates.push('tracking_number = ?');
+    params.push(tracking_number || null);
+  }
+
+  if (tracking_url !== undefined) {
+    updates.push('tracking_url = ?');
+    params.push(tracking_url || null);
+  }
+
+  if (updates.length === 0) {
+    throw ApiError.invalidRequest('No fields to update');
+  }
+
+  params.push(orderId);
+  params.push(store.id);
+
+  await db.run(
+    `UPDATE orders SET ${updates.join(', ')} WHERE id = ? AND store_id = ?`,
+    params
+  );
+
+  const [updated] = await db.query<any>(`SELECT * FROM orders WHERE id = ?`, [orderId]);
+  const orderItems = await db.query<any>(`SELECT * FROM order_items WHERE order_id = ?`, [orderId]);
+
+  return c.json(formatOrder(updated, orderItems));
 });
 
 // POST /v1/orders/:orderId/refund
@@ -192,6 +290,11 @@ function formatOrder(order: any, items: any[]) {
       shipping_cents: order.shipping_cents,
       total_cents: order.total_cents,
       currency: order.currency,
+    },
+    tracking: {
+      number: order.tracking_number,
+      url: order.tracking_url,
+      shipped_at: order.shipped_at,
     },
     stripe: {
       checkout_session_id: order.stripe_checkout_session_id,

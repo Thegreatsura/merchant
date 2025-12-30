@@ -32,20 +32,17 @@ cd admin && npm install && npm run dev
 
 ## Deploy to Cloudflare
 
+D1 and R2 are **auto-provisioned** on first deploy — no manual setup required!
+
 ```bash
-# Create D1 database
-wrangler d1 create merchant-db
-# Update database_id in wrangler.toml with the returned ID
-
-# Create R2 bucket
-wrangler r2 bucket create merchant-images
-
-# Deploy
+# Deploy (D1 database + R2 bucket created automatically)
 wrangler deploy
 
 # Run init script against production
 npx tsx scripts/init.ts --remote
 ```
+
+Resource IDs will be written back to `wrangler.jsonc` after deploy.
 
 ## API Reference
 
@@ -57,8 +54,8 @@ All endpoints require `Authorization: Bearer <key>` header.
 ### Products (admin)
 
 ```bash
-# List products
-GET /v1/products
+# List products (with pagination)
+GET /v1/products?limit=20&cursor=...&status=active
 
 # Create product
 POST /v1/products
@@ -101,17 +98,33 @@ POST /v1/carts/{id}/items
 
 # Checkout → returns Stripe URL
 POST /v1/carts/{id}/checkout
-{"success_url": "https://...", "cancel_url": "https://..."}
+{
+  "success_url": "https://...",
+  "cancel_url": "https://...",
+  "collect_shipping": true,
+  "shipping_countries": ["US", "CA", "GB"]
+}
 ```
+
+**Checkout options:**
+- `collect_shipping` — Enable shipping address collection
+- `shipping_countries` — Allowed countries (default: `["US"]`)
+- `shipping_options` — Custom shipping rates (optional, has sensible defaults)
+
+Automatic tax calculation is enabled via Stripe Tax.
 
 ### Orders (admin)
 
 ```bash
-# List orders
-GET /v1/orders
+# List orders (with pagination and filters)
+GET /v1/orders?limit=20&cursor=...&status=shipped&email=customer@example.com
 
 # Get order details
 GET /v1/orders/{id}
+
+# Update order status/tracking
+PATCH /v1/orders/{id}
+{"status": "shipped", "tracking_number": "1Z999...", "tracking_url": "https://..."}
 
 # Refund order
 POST /v1/orders/{id}/refund
@@ -121,6 +134,8 @@ POST /v1/orders/{id}/refund
 POST /v1/orders/test
 {"customer_email": "test@example.com", "items": [{"sku": "TEE-BLK-M", "qty": 1}]}
 ```
+
+**Order statuses:** `pending` → `paid` → `processing` → `shipped` → `delivered` | `refunded` | `canceled`
 
 ### Images (admin)
 
@@ -205,7 +220,7 @@ For high traffic, switch from D1 to Postgres via Hyperdrive:
 
 1. Create a Postgres database (Neon, Supabase, etc.)
 2. Create a Hyperdrive config: `wrangler hyperdrive create merchant-db --connection-string="..."`
-3. Uncomment Hyperdrive in `wrangler.toml`
+3. Uncomment Hyperdrive in `wrangler.jsonc`
 4. Apply `schema-postgres.sql` to your database
 
 ## License

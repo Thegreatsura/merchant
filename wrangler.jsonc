@@ -1,0 +1,50 @@
+{
+  // ============================================================
+  // MERCHANT - Cloudflare Workers
+  // ============================================================
+
+  "name": "merchant-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-12-01",
+
+  // D1 Database
+  // Auto-provisioned on first deploy - no manual setup needed!
+  "d1_databases": [
+    {
+      "binding": "DB"
+    }
+  ],
+
+  // R2 - Image storage
+  // Auto-provisioned on first deploy
+  "r2_buckets": [
+    {
+      "binding": "IMAGES"
+    }
+  ],
+
+  "vars": {
+    "IMAGES_URL": "" // Set after deploy to your R2 public URL
+  },
+
+  // Cron for expired cart cleanup (every 15 minutes)
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  },
+
+  // Local development
+  "dev": {
+    "port": 8787
+  }
+
+  // ============================================================
+  // OPTIONAL: Postgres + Hyperdrive (for scale)
+  // ============================================================
+  // "hyperdrive": [
+  //   {
+  //     "binding": "HYPERDRIVE",
+  //     "id": ""
+  //   }
+  // ]
+}
+

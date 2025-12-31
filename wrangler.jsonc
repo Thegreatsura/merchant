@@ -4,22 +4,24 @@
   // ============================================================
 
   "name": "merchant-api",
+  "account_id": "3f3fc3f3d329d967573c0e8acc8525e1",
   "main": "src/index.ts",
   "compatibility_date": "2025-12-01",
 
   // D1 Database
-  // Auto-provisioned on first deploy - no manual setup needed!
   "d1_databases": [
     {
-      "binding": "DB"
+      "binding": "DB",
+      "database_name": "merchant-db",
+      "database_id": "0a4cea75-6c84-415b-9a47-40dc158a56a3"
     }
   ],
 
   // R2 - Image storage
-  // Auto-provisioned on first deploy
   "r2_buckets": [
     {
-      "binding": "IMAGES"
+      "binding": "IMAGES",
+      "bucket_name": "merchant-images"
     }
   ],
 

@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import { getDb } from '../db';
 import { authMiddleware, adminOnly } from '../middleware/auth';
 import { ApiError, uuid, now, type Env, type AuthContext } from '../types';
+import { dispatchWebhooks, type WebhookEventType } from '../lib/webhooks';
 
 // ============================================================
 // ORDER ROUTES
@@ -150,7 +151,21 @@ ordersRoutes.patch('/:orderId', async (c) => {
   const [updated] = await db.query<any>(`SELECT * FROM orders WHERE id = ?`, [orderId]);
   const orderItems = await db.query<any>(`SELECT * FROM order_items WHERE order_id = ?`, [orderId]);
 
-  return c.json(formatOrder(updated, orderItems));
+  // Dispatch webhooks for status changes
+  const formattedOrder = formatOrder(updated, orderItems);
+  
+  if (status !== undefined && status !== order.status) {
+    // Determine specific event type
+    let eventType: WebhookEventType = 'order.updated';
+    if (status === 'shipped') eventType = 'order.shipped';
+    
+    await dispatchWebhooks(c.env, c.executionCtx, store.id, eventType, {
+      order: formattedOrder,
+      previous_status: order.status,
+    });
+  }
+
+  return c.json(formattedOrder);
 });
 
 // POST /v1/orders/:orderId/refund
@@ -189,6 +204,18 @@ ordersRoutes.post('/:orderId/refund', async (c) => {
 
     if (!amountCents || amountCents >= order.total_cents) {
       await db.run(`UPDATE orders SET status = 'refunded' WHERE id = ?`, [orderId]);
+      
+      // Dispatch refund webhook
+      const [refundedOrder] = await db.query<any>(`SELECT * FROM orders WHERE id = ?`, [orderId]);
+      const orderItems = await db.query<any>(`SELECT * FROM order_items WHERE order_id = ?`, [orderId]);
+      
+      await dispatchWebhooks(c.env, c.executionCtx, store.id, 'order.refunded', {
+        order: formatOrder(refundedOrder, orderItems),
+        refund: {
+          stripe_refund_id: refund.id,
+          amount_cents: refund.amount,
+        },
+      });
     }
 
     return c.json({ stripe_refund_id: refund.id, status: refund.status });

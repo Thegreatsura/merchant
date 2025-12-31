@@ -256,4 +256,73 @@ catalogRoutes.post('/:id/variants', adminOnly, async (c) => {
   return c.json({ id, sku, title, price_cents, image_url: image_url || null }, 201);
 });
 
+// PATCH /v1/products/:id/variants/:variantId (admin only)
+catalogRoutes.patch('/:id/variants/:variantId', adminOnly, async (c) => {
+  const productId = c.req.param('id');
+  const variantId = c.req.param('variantId');
+  const body = await c.req.json();
+  const { sku, title, price_cents, image_url } = body;
+
+  const { store } = c.get('auth');
+  const db = getDb(c.env);
+
+  // Check variant exists and belongs to product/store
+  const [existing] = await db.query<any>(
+    `SELECT * FROM variants WHERE id = ? AND product_id = ? AND store_id = ?`,
+    [variantId, productId, store.id]
+  );
+  if (!existing) throw ApiError.notFound('Variant not found');
+
+  const updates: string[] = [];
+  const params: unknown[] = [];
+
+  if (sku !== undefined) {
+    // Check SKU uniqueness (excluding this variant)
+    const [existingSku] = await db.query<any>(
+      `SELECT * FROM variants WHERE sku = ? AND store_id = ? AND id != ?`,
+      [sku, store.id, variantId]
+    );
+    if (existingSku) throw ApiError.conflict(`SKU ${sku} already exists`);
+
+    // Update inventory SKU as well
+    await db.run(
+      `UPDATE inventory SET sku = ? WHERE sku = ? AND store_id = ?`,
+      [sku, existing.sku, store.id]
+    );
+
+    updates.push('sku = ?');
+    params.push(sku);
+  }
+  if (title !== undefined) {
+    updates.push('title = ?');
+    params.push(title);
+  }
+  if (price_cents !== undefined) {
+    if (typeof price_cents !== 'number' || price_cents < 0) {
+      throw ApiError.invalidRequest('price_cents must be a positive number');
+    }
+    updates.push('price_cents = ?');
+    params.push(price_cents);
+  }
+  if (image_url !== undefined) {
+    updates.push('image_url = ?');
+    params.push(image_url);
+  }
+
+  if (updates.length > 0) {
+    params.push(variantId);
+    await db.run(`UPDATE variants SET ${updates.join(', ')} WHERE id = ?`, params);
+  }
+
+  const [variant] = await db.query<any>(`SELECT * FROM variants WHERE id = ?`, [variantId]);
+
+  return c.json({
+    id: variant.id,
+    sku: variant.sku,
+    title: variant.title,
+    price_cents: variant.price_cents,
+    image_url: variant.image_url,
+  });
+});
+
 export { catalogRoutes as catalog };

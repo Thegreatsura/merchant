@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import Stripe from 'stripe';
 import { getDb } from '../db';
 import { ApiError, uuid, now, type Env } from '../types';
+import { dispatchWebhooks } from '../lib/webhooks';
 
 // ============================================================
 // WEBHOOK ROUTES
@@ -97,6 +98,35 @@ webhooks.post('/stripe', async (c) => {
             [uuid(), store.id, item.sku, -item.qty]
           );
         }
+
+        // Dispatch order.created webhook
+        const orderItems = await db.query<any>(`SELECT * FROM order_items WHERE order_id = ?`, [orderId]);
+        await dispatchWebhooks(c.env, c.executionCtx, store.id, 'order.created', {
+          order: {
+            id: orderId,
+            number: orderNumber,
+            status: 'paid',
+            customer_email: cart.customer_email,
+            ship_to: session.shipping_details?.address || null,
+            amounts: {
+              subtotal_cents: session.amount_subtotal ?? 0,
+              tax_cents: session.total_details?.amount_tax ?? 0,
+              shipping_cents: session.total_details?.amount_shipping ?? 0,
+              total_cents: session.amount_total ?? 0,
+              currency: cart.currency,
+            },
+            items: orderItems.map((i: any) => ({
+              sku: i.sku,
+              title: i.title,
+              qty: i.qty,
+              unit_price_cents: i.unit_price_cents,
+            })),
+            stripe: {
+              checkout_session_id: session.id,
+              payment_intent_id: session.payment_intent,
+            },
+          },
+        });
       }
     }
   }

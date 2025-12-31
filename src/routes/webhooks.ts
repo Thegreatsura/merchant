@@ -156,9 +156,6 @@ webhooks.post('/stripe', async (c) => {
           }
         }
 
-        // Generate order number (timestamp-based to avoid race conditions)
-        const orderNumber = generateOrderNumber();
-
         // Create order (now with customer link, shipping details, and discount)
         const orderId = uuid();
         await db.run(

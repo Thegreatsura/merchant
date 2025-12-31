@@ -310,7 +310,12 @@ function formatOrder(order: any, items: any[]) {
     number: order.number,
     status: order.status,
     customer_email: order.customer_email,
-    ship_to: order.ship_to ? JSON.parse(order.ship_to) : null,
+    customer_id: order.customer_id || null,
+    shipping: {
+      name: order.shipping_name || null,
+      phone: order.shipping_phone || null,
+      address: order.ship_to ? JSON.parse(order.ship_to) : null,
+    },
     amounts: {
       subtotal_cents: order.subtotal_cents,
       tax_cents: order.tax_cents,

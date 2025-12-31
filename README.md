@@ -113,6 +113,32 @@ POST /v1/carts/{id}/checkout
 
 Automatic tax calculation is enabled via Stripe Tax.
 
+### Customers (admin)
+
+```bash
+# List customers (with pagination and search)
+GET /v1/customers?limit=20&cursor=...&search=john@example.com
+
+# Get customer with addresses
+GET /v1/customers/{id}
+
+# Get customer's order history
+GET /v1/customers/{id}/orders
+
+# Update customer
+PATCH /v1/customers/{id}
+{"name": "John Doe", "phone": "+1234567890"}
+
+# Add address
+POST /v1/customers/{id}/addresses
+{"line1": "123 Main St", "city": "NYC", "postal_code": "10001"}
+
+# Delete address
+DELETE /v1/customers/{id}/addresses/{addressId}
+```
+
+Customers are automatically created from Stripe checkout sessions (guest checkout by email).
+
 ### Orders (admin)
 
 ```bash
@@ -217,6 +243,16 @@ cd admin && npm install && npm run dev
 
 Connect with your API URL and admin key (`sk_...`).
 
+## Example Store
+
+A complete vanilla JS storefront demonstrating the full checkout flow:
+
+```bash
+cd example && npm run dev
+```
+
+Update `example/src/config.js` with your public key (`pk_...`), then open http://localhost:3000
+
 Features:
 - **Orders** — Search, filter by status, update tracking, one-click refunds
 - **Inventory** — View stock levels, quick adjustments (+10, +50, etc.)
@@ -239,6 +275,7 @@ src/
     ├── checkout.ts   # Carts & Stripe checkout
     ├── orders.ts     # Order management
     ├── inventory.ts  # Stock levels
+    ├── customers.ts  # Customer management
     ├── images.ts     # R2 image upload
     ├── setup.ts      # Store configuration
     └── webhooks.ts   # Stripe webhooks

@@ -80,6 +80,9 @@ CREATE TABLE IF NOT EXISTS carts (
   customer_email TEXT NOT NULL,
   currency TEXT NOT NULL DEFAULT 'USD',
   stripe_checkout_session_id TEXT,
+  discount_code TEXT,
+  discount_id TEXT REFERENCES discounts(id),
+  discount_amount_cents INTEGER DEFAULT 0,
   expires_at TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -107,6 +110,9 @@ CREATE TABLE IF NOT EXISTS orders (
   shipping_cents INTEGER NOT NULL DEFAULT 0,
   total_cents INTEGER NOT NULL,
   currency TEXT NOT NULL DEFAULT 'USD',
+  discount_code TEXT,
+  discount_id TEXT REFERENCES discounts(id),
+  discount_amount_cents INTEGER DEFAULT 0,
   stripe_checkout_session_id TEXT,
   stripe_payment_intent_id TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -132,6 +138,36 @@ CREATE TABLE IF NOT EXISTS refunds (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Discounts
+CREATE TABLE IF NOT EXISTS discounts (
+  id TEXT PRIMARY KEY,
+  store_id TEXT NOT NULL REFERENCES stores(id),
+  code TEXT,
+  type TEXT NOT NULL CHECK (type IN ('percentage', 'fixed_amount')),
+  value INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+  min_purchase_cents INTEGER DEFAULT 0,
+  max_discount_cents INTEGER,
+  starts_at TEXT,
+  expires_at TEXT,
+  usage_limit INTEGER,
+  usage_limit_per_customer INTEGER DEFAULT 1,
+  usage_count INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(store_id, code)
+);
+
+-- Discount Usage
+CREATE TABLE IF NOT EXISTS discount_usage (
+  id TEXT PRIMARY KEY,
+  discount_id TEXT NOT NULL REFERENCES discounts(id),
+  order_id TEXT NOT NULL REFERENCES orders(id),
+  customer_email TEXT NOT NULL,
+  discount_amount_cents INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Events (webhook deduplication)
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
@@ -150,4 +186,7 @@ CREATE INDEX IF NOT EXISTS idx_inventory_store_sku ON inventory(store_id, sku);
 CREATE INDEX IF NOT EXISTS idx_carts_store ON carts(store_id);
 CREATE INDEX IF NOT EXISTS idx_carts_expires ON carts(expires_at);
 CREATE INDEX IF NOT EXISTS idx_orders_store ON orders(store_id);
+CREATE INDEX IF NOT EXISTS idx_discounts_store_code ON discounts(store_id, code);
+CREATE INDEX IF NOT EXISTS idx_discount_usage_order ON discount_usage(order_id);
+CREATE INDEX IF NOT EXISTS idx_discount_usage_customer ON discount_usage(discount_id, customer_email);
 

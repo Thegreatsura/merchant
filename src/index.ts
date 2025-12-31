@@ -6,9 +6,11 @@ import { inventory } from './routes/inventory';
 import { checkout } from './routes/checkout';
 import { orders } from './routes/orders';
 import { webhooks } from './routes/webhooks';
+import { webhooksRoutes } from './routes/webhooks-outbound';
 import { images } from './routes/images';
 import { discounts } from './routes/discounts';
 import { handleCron } from './cron';
+import { rateLimitMiddleware } from './middleware/rate-limit';
 import { ApiError, type Env } from './types';
 
 // ============================================================
@@ -18,6 +20,9 @@ import { ApiError, type Env } from './types';
 const app = new Hono<{ Bindings: Env }>();
 
 app.use('*', cors());
+
+// Rate limiting (applied to all routes except health check)
+app.use('/v1/*', rateLimitMiddleware());
 
 // Error handler
 app.onError((err, c) => {
@@ -42,13 +47,14 @@ app.route('/v1/products', catalog);
 app.route('/v1/inventory', inventory);
 app.route('/v1/carts', checkout);
 app.route('/v1/orders', orders);
-app.route('/v1/webhooks', webhooks);
+app.route('/v1/webhooks', webhooks);        // Stripe incoming webhooks
+app.route('/v1/webhooks', webhooksRoutes);  // Outbound webhook management
 app.route('/v1/images', images);
 app.route('/v1/discounts', discounts);
 
 export default {
   fetch: app.fetch,
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(handleCron(env));
+    ctx.waitUntil(handleCron(env, ctx));
   },
 };

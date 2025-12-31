@@ -184,6 +184,9 @@ checkout.post('/:cartId/checkout', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const successUrl = body?.success_url;
   const cancelUrl = body?.cancel_url;
+  const collectShipping = body?.collect_shipping ?? false;
+  const shippingCountries = body?.shipping_countries ?? ['US'];
+  const shippingOptions = body?.shipping_options;
 
   if (!successUrl) throw ApiError.invalidRequest('success_url is required');
   if (!cancelUrl) throw ApiError.invalidRequest('cancel_url is required');
@@ -303,11 +306,33 @@ checkout.post('/:cartId/checkout', async (c) => {
     }
   }
 
+  // Build shipping options if provided, otherwise use defaults
+  const defaultShippingOptions: Stripe.Checkout.SessionCreateParams.ShippingOption[] = [
+    {
+      shipping_rate_data: {
+        type: 'fixed_amount',
+        fixed_amount: { amount: 0, currency: 'usd' },
+        display_name: 'Standard Shipping',
+        delivery_estimate: {
+          minimum: { unit: 'business_day', value: 5 },
+          maximum: { unit: 'business_day', value: 7 },
+        },
+      },
+    },
+  ];
+
   let session;
   try {
     session = await stripe.checkout.sessions.create({
       mode: 'payment',
       customer_email: cart.customer_email,
+      automatic_tax: { enabled: true },
+      ...(collectShipping && {
+        shipping_address_collection: {
+          allowed_countries: shippingCountries as Stripe.Checkout.SessionCreateParams.ShippingAddressCollection.AllowedCountry[],
+        },
+        shipping_options: shippingOptions ?? defaultShippingOptions,
+      }),
       line_items: lineItems,
       ...(stripeCouponId && { discounts: [{ coupon: stripeCouponId }] }),
       success_url: successUrl,

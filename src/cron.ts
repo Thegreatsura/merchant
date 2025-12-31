@@ -1,11 +1,12 @@
 import { getDb } from './db';
 import { uuid, now, type Env } from './types';
+import { retryFailedDeliveries } from './lib/webhooks';
 
 // ============================================================
-// CRON - Release expired reservations
+// CRON - Scheduled tasks
 // ============================================================
 
-export async function handleCron(env: Env) {
+export async function handleCron(env: Env, ctx: ExecutionContext) {
   const db = getDb(env);
   const currentTime = now();
 
@@ -36,4 +37,8 @@ export async function handleCron(env: Env) {
   }
 
   console.log(`Released ${expiredCarts.length} expired carts`);
+
+  // Retry failed webhook deliveries
+  const retriedCount = await retryFailedDeliveries(env, ctx);
+  console.log(`Retried ${retriedCount} failed webhook deliveries`);
 }

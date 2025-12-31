@@ -19,10 +19,33 @@ catalogRoutes.get('/', async (c) => {
   const { store } = c.get('auth');
   const db = getDb(c.env);
 
-  const products = await db.query<any>(
-    `SELECT * FROM products WHERE store_id = ? ORDER BY created_at DESC`,
-    [store.id]
-  );
+  // Pagination params
+  const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
+  const cursor = c.req.query('cursor');
+  const status = c.req.query('status'); // Filter by status
+
+  // Build query
+  let query = `SELECT * FROM products WHERE store_id = ?`;
+  const params: unknown[] = [store.id];
+
+  if (status) {
+    query += ` AND status = ?`;
+    params.push(status);
+  }
+
+  if (cursor) {
+    query += ` AND created_at < ?`;
+    params.push(cursor);
+  }
+
+  query += ` ORDER BY created_at DESC LIMIT ?`;
+  params.push(limit + 1); // Fetch one extra to check for next page
+
+  const products = await db.query<any>(query, params);
+
+  // Check if there's a next page
+  const hasMore = products.length > limit;
+  if (hasMore) products.pop();
 
   const items = await Promise.all(
     products.map(async (p) => {
@@ -47,7 +70,15 @@ catalogRoutes.get('/', async (c) => {
     })
   );
 
-  return c.json({ items });
+  const nextCursor = hasMore && items.length > 0 ? items[items.length - 1].created_at : null;
+
+  return c.json({
+    items,
+    pagination: {
+      has_more: hasMore,
+      next_cursor: nextCursor,
+    },
+  });
 });
 
 // GET /v1/products/:id
@@ -223,6 +254,75 @@ catalogRoutes.post('/:id/variants', adminOnly, async (c) => {
   );
 
   return c.json({ id, sku, title, price_cents, image_url: image_url || null }, 201);
+});
+
+// PATCH /v1/products/:id/variants/:variantId (admin only)
+catalogRoutes.patch('/:id/variants/:variantId', adminOnly, async (c) => {
+  const productId = c.req.param('id');
+  const variantId = c.req.param('variantId');
+  const body = await c.req.json();
+  const { sku, title, price_cents, image_url } = body;
+
+  const { store } = c.get('auth');
+  const db = getDb(c.env);
+
+  // Check variant exists and belongs to product/store
+  const [existing] = await db.query<any>(
+    `SELECT * FROM variants WHERE id = ? AND product_id = ? AND store_id = ?`,
+    [variantId, productId, store.id]
+  );
+  if (!existing) throw ApiError.notFound('Variant not found');
+
+  const updates: string[] = [];
+  const params: unknown[] = [];
+
+  if (sku !== undefined) {
+    // Check SKU uniqueness (excluding this variant)
+    const [existingSku] = await db.query<any>(
+      `SELECT * FROM variants WHERE sku = ? AND store_id = ? AND id != ?`,
+      [sku, store.id, variantId]
+    );
+    if (existingSku) throw ApiError.conflict(`SKU ${sku} already exists`);
+
+    // Update inventory SKU as well
+    await db.run(
+      `UPDATE inventory SET sku = ? WHERE sku = ? AND store_id = ?`,
+      [sku, existing.sku, store.id]
+    );
+
+    updates.push('sku = ?');
+    params.push(sku);
+  }
+  if (title !== undefined) {
+    updates.push('title = ?');
+    params.push(title);
+  }
+  if (price_cents !== undefined) {
+    if (typeof price_cents !== 'number' || price_cents < 0) {
+      throw ApiError.invalidRequest('price_cents must be a positive number');
+    }
+    updates.push('price_cents = ?');
+    params.push(price_cents);
+  }
+  if (image_url !== undefined) {
+    updates.push('image_url = ?');
+    params.push(image_url);
+  }
+
+  if (updates.length > 0) {
+    params.push(variantId);
+    await db.run(`UPDATE variants SET ${updates.join(', ')} WHERE id = ?`, params);
+  }
+
+  const [variant] = await db.query<any>(`SELECT * FROM variants WHERE id = ?`, [variantId]);
+
+  return c.json({
+    id: variant.id,
+    sku: variant.sku,
+    title: variant.title,
+    price_cents: variant.price_cents,
+    image_url: variant.image_url,
+  });
 });
 
 export { catalogRoutes as catalog };

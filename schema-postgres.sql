@@ -122,7 +122,7 @@ CREATE TABLE orders (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   store_id UUID NOT NULL REFERENCES stores(id),
   number TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'paid' CHECK (status IN ('paid', 'refunded', 'canceled')),
+  status TEXT NOT NULL DEFAULT 'paid' CHECK (status IN ('pending', 'paid', 'processing', 'shipped', 'delivered', 'refunded', 'canceled')),
   customer_email TEXT NOT NULL,
   ship_to JSONB,
   subtotal_cents INTEGER NOT NULL,
@@ -133,6 +133,9 @@ CREATE TABLE orders (
   discount_code TEXT,
   discount_id UUID REFERENCES discounts(id),
   discount_amount_cents INTEGER DEFAULT 0,
+  tracking_number TEXT,
+  tracking_url TEXT,
+  shipped_at TIMESTAMPTZ,
   stripe_checkout_session_id TEXT,
   stripe_payment_intent_id TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()

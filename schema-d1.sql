@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS orders (
   id TEXT PRIMARY KEY,
   store_id TEXT NOT NULL REFERENCES stores(id),
   number TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'paid' CHECK (status IN ('paid', 'refunded', 'canceled')),
+  status TEXT NOT NULL DEFAULT 'paid' CHECK (status IN ('pending', 'paid', 'processing', 'shipped', 'delivered', 'refunded', 'canceled')),
   customer_email TEXT NOT NULL,
   ship_to TEXT,
   subtotal_cents INTEGER NOT NULL,
@@ -113,6 +113,9 @@ CREATE TABLE IF NOT EXISTS orders (
   discount_code TEXT,
   discount_id TEXT REFERENCES discounts(id),
   discount_amount_cents INTEGER DEFAULT 0,
+  tracking_number TEXT,
+  tracking_url TEXT,
+  shipped_at TEXT,
   stripe_checkout_session_id TEXT,
   stripe_payment_intent_id TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -178,6 +181,31 @@ CREATE TABLE IF NOT EXISTS events (
   processed_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Outbound Webhooks
+CREATE TABLE IF NOT EXISTS webhooks (
+  id TEXT PRIMARY KEY,
+  store_id TEXT NOT NULL REFERENCES stores(id),
+  url TEXT NOT NULL,
+  events TEXT NOT NULL, -- JSON array of event types
+  secret TEXT NOT NULL, -- HMAC signing secret
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Webhook Deliveries (for debugging/retry)
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+  id TEXT PRIMARY KEY,
+  webhook_id TEXT NOT NULL REFERENCES webhooks(id),
+  event_type TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'success', 'failed')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_attempt_at TEXT,
+  response_code INTEGER,
+  response_body TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
 CREATE INDEX IF NOT EXISTS idx_products_store ON products(store_id);
@@ -189,4 +217,7 @@ CREATE INDEX IF NOT EXISTS idx_orders_store ON orders(store_id);
 CREATE INDEX IF NOT EXISTS idx_discounts_store_code ON discounts(store_id, code);
 CREATE INDEX IF NOT EXISTS idx_discount_usage_order ON discount_usage(order_id);
 CREATE INDEX IF NOT EXISTS idx_discount_usage_customer ON discount_usage(discount_id, customer_email);
+CREATE INDEX IF NOT EXISTS idx_webhooks_store ON webhooks(store_id);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook ON webhook_deliveries(webhook_id);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status ON webhook_deliveries(status);
 

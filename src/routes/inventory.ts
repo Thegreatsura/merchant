@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { getDb } from '../db';
 import { authMiddleware, adminOnly } from '../middleware/auth';
 import { ApiError, uuid, now, type Env, type AuthContext } from '../types';
+import { checkLowInventory } from '../lib/webhooks';
 
 // ============================================================
 // INVENTORY ROUTES
@@ -99,11 +100,16 @@ inventoryRoutes.post('/:sku/adjust', async (c) => {
     [store.id, sku]
   );
 
+  const available = level.on_hand - level.reserved;
+
+  // Check for low inventory and dispatch webhook if needed
+  await checkLowInventory(c.env, c.executionCtx, store.id, sku, available);
+
   return c.json({
     sku: level.sku,
     on_hand: level.on_hand,
     reserved: level.reserved,
-    available: level.on_hand - level.reserved,
+    available,
   });
 });
 

@@ -95,12 +95,84 @@ async function seed() {
     }
   }
 
+  // Create test orders
+  console.log('\n🛒 Creating test orders...');
+  
+  const testOrders = [
+    {
+      customer_email: 'sarah@example.com',
+      items: [
+        { sku: 'TEE-BLK-M', qty: 2 },
+        { sku: 'CAP-BLK', qty: 1 },
+      ],
+    },
+    {
+      customer_email: 'mike@example.com',
+      items: [
+        { sku: 'HOOD-BLK-L', qty: 1 },
+      ],
+    },
+    {
+      customer_email: 'emma@example.com',
+      items: [
+        { sku: 'TEE-WHT-S', qty: 1 },
+        { sku: 'TEE-WHT-M', qty: 1 },
+        { sku: 'CAP-NVY', qty: 2 },
+      ],
+    },
+    {
+      customer_email: 'james@example.com',
+      items: [
+        { sku: 'HOOD-GRY-M', qty: 1 },
+        { sku: 'TEE-BLK-L', qty: 3 },
+      ],
+    },
+    {
+      customer_email: 'olivia@example.com',
+      items: [
+        { sku: 'CAP-BLK', qty: 1 },
+      ],
+    },
+    {
+      customer_email: 'noah@example.com',
+      items: [
+        { sku: 'TEE-BLK-S', qty: 1 },
+        { sku: 'TEE-WHT-L', qty: 1 },
+        { sku: 'HOOD-BLK-M', qty: 1 },
+      ],
+    },
+    {
+      customer_email: 'ava@example.com',
+      items: [
+        { sku: 'HOOD-GRY-L', qty: 2 },
+      ],
+    },
+    {
+      customer_email: 'liam@example.com',
+      items: [
+        { sku: 'TEE-BLK-M', qty: 1 },
+        { sku: 'CAP-NVY', qty: 1 },
+      ],
+    },
+  ];
+
+  for (const order of testOrders) {
+    const result = await api('/v1/orders/test', order);
+    const itemsSummary = order.items.map(i => `${i.qty}x ${i.sku}`).join(', ');
+    console.log(`   └─ ${result.number}: ${order.customer_email} (${itemsSummary})`);
+  }
+
   console.log('\n✅ Done! Demo data created.\n');
   
   // Show summary
   const { items: allProducts } = await api('/v1/products');
+  const { items: allOrders } = await api('/v1/orders');
   console.log(`Products: ${allProducts.length}`);
   console.log(`Variants: ${allProducts.reduce((sum: number, p: any) => sum + p.variants.length, 0)}`);
+  console.log(`Orders: ${allOrders.length}`);
+  
+  const totalRevenue = allOrders.reduce((sum: number, o: any) => sum + o.amounts.total_cents, 0);
+  console.log(`Revenue: $${(totalRevenue / 100).toFixed(2)}`);
   
   console.log(`\n📊 Admin dashboard: cd admin && npm run dev`);
   console.log(`   Connect with: ${API_URL}`);

@@ -7,6 +7,7 @@ import { checkout } from './routes/checkout';
 import { orders } from './routes/orders';
 import { webhooks } from './routes/webhooks';
 import { images } from './routes/images';
+import { discounts } from './routes/discounts';
 import { handleCron } from './cron';
 import { ApiError, type Env } from './types';
 
@@ -43,6 +44,7 @@ app.route('/v1/carts', checkout);
 app.route('/v1/orders', orders);
 app.route('/v1/webhooks', webhooks);
 app.route('/v1/images', images);
+app.route('/v1/discounts', discounts);
 
 export default {
   fetch: app.fetch,

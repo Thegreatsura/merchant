@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import { getDb } from '../db';
 import { authMiddleware, adminOnly } from '../middleware/auth';
 import { ApiError, uuid, now, type Env, type AuthContext } from '../types';
+import { validateDiscount, calculateDiscount, type Discount } from './discounts';
 
 // ============================================================
 // ORDER ROUTES
@@ -102,7 +103,7 @@ ordersRoutes.post('/:orderId/refund', async (c) => {
 // POST /v1/orders/test - Create a test order (skips Stripe, for local testing)
 ordersRoutes.post('/test', async (c) => {
   const body = await c.req.json().catch(() => ({}));
-  const { customer_email, items } = body;
+  const { customer_email, items, discount_code } = body;
 
   if (!customer_email) throw ApiError.invalidRequest('customer_email is required');
   if (!Array.isArray(items) || items.length === 0) {
@@ -144,21 +145,47 @@ ordersRoutes.post('/test', async (c) => {
     });
   }
 
-  // Generate order number
+  // Handle discount if provided
+  let discountId = null;
+  let discountCode = null;
+  let discountAmountCents = 0;
+  let discount: Discount | null = null;
+
+  if (discount_code) {
+    const normalizedCode = discount_code.toUpperCase().trim();
+    const [discountRow] = await db.query<any>(
+      `SELECT * FROM discounts WHERE code = ? AND store_id = ?`,
+      [normalizedCode, store.id]
+    );
+    
+    if (discountRow) {
+      await validateDiscount(db, discountRow as Discount, subtotal, customer_email);
+      discountAmountCents = calculateDiscount(discountRow as Discount, subtotal);
+      discountId = discountRow.id;
+      discountCode = discountRow.code;
+      discount = discountRow as Discount;
+    } else {
+      throw ApiError.notFound('Discount code not found');
+    }
+  }
+
+  const totalCents = subtotal - discountAmountCents;
+
+  // Generate order number (consistent 4-digit padding with webhook)
   const timestamp = now();
   const orderCount = await db.query<any>(
     `SELECT COUNT(*) as count FROM orders WHERE store_id = ?`,
     [store.id]
   );
-  const orderNumber = `ORD-${String((orderCount[0]?.count || 0) + 1).padStart(5, '0')}`;
+  const orderNumber = `ORD-${String((orderCount[0]?.count || 0) + 1).padStart(4, '0')}`;
 
   const orderId = uuid();
 
   // Create order
   await db.run(
-    `INSERT INTO orders (id, store_id, number, status, customer_email, subtotal_cents, tax_cents, shipping_cents, total_cents, created_at)
-     VALUES (?, ?, ?, 'paid', ?, ?, 0, 0, ?, ?)`,
-    [orderId, store.id, orderNumber, customer_email, subtotal, subtotal, timestamp]
+    `INSERT INTO orders (id, store_id, number, status, customer_email, subtotal_cents, tax_cents, shipping_cents, total_cents, discount_code, discount_id, discount_amount_cents, created_at)
+     VALUES (?, ?, ?, 'paid', ?, ?, 0, 0, ?, ?, ?, ?, ?)`,
+    [orderId, store.id, orderNumber, customer_email, subtotal, totalCents, discountCode, discountId, discountAmountCents, timestamp]
   );
 
   // Create order items and deduct inventory
@@ -175,6 +202,25 @@ ordersRoutes.post('/test', async (c) => {
     );
   }
 
+  // Track discount usage if discount was applied
+  if (discount && discountAmountCents > 0) {
+    // Increment usage count
+    await db.run(
+      `UPDATE discounts 
+       SET usage_count = usage_count + 1, updated_at = ? 
+       WHERE id = ? 
+         AND (usage_limit IS NULL OR usage_count < usage_limit)`,
+      [timestamp, discountId]
+    );
+
+    // Record usage for per-customer tracking
+    await db.run(
+      `INSERT INTO discount_usage (id, discount_id, order_id, customer_email, discount_amount_cents)
+       VALUES (?, ?, ?, ?, ?)`,
+      [uuid(), discountId, orderId, customer_email.toLowerCase(), discountAmountCents]
+    );
+  }
+
   const [order] = await db.query<any>(`SELECT * FROM orders WHERE id = ?`, [orderId]);
   return c.json(formatOrder(order, orderItems));
 });
@@ -188,11 +234,18 @@ function formatOrder(order: any, items: any[]) {
     ship_to: order.ship_to ? JSON.parse(order.ship_to) : null,
     amounts: {
       subtotal_cents: order.subtotal_cents,
+      discount_cents: order.discount_amount_cents || 0,
       tax_cents: order.tax_cents,
       shipping_cents: order.shipping_cents,
       total_cents: order.total_cents,
       currency: order.currency,
     },
+    discount: order.discount_code
+      ? {
+          code: order.discount_code,
+          amount_cents: order.discount_amount_cents || 0,
+        }
+      : null,
     stripe: {
       checkout_session_id: order.stripe_checkout_session_id,
       payment_intent_id: order.stripe_payment_intent_id,

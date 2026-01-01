@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import { getDb } from '../db';
 import { authMiddleware, adminOnly } from '../middleware/auth';
 import { ApiError, uuid, now, generateOrderNumber, type Env, type AuthContext } from '../types';
+import { validateDiscount, calculateDiscount, type Discount } from './discounts';
 import { dispatchWebhooks, type WebhookEventType } from '../lib/webhooks';
 
 // ============================================================
@@ -239,7 +240,7 @@ ordersRoutes.post('/:orderId/refund', async (c) => {
 // POST /v1/orders/test - Create a test order (skips Stripe, for local testing)
 ordersRoutes.post('/test', async (c) => {
   const body = await c.req.json().catch(() => ({}));
-  const { customer_email, items } = body;
+  const { customer_email, items, discount_code } = body;
 
   if (!customer_email) throw ApiError.invalidRequest('customer_email is required');
   if (!Array.isArray(items) || items.length === 0) {
@@ -281,6 +282,32 @@ ordersRoutes.post('/test', async (c) => {
     });
   }
 
+  // Handle discount if provided
+  let discountId = null;
+  let discountCode = null;
+  let discountAmountCents = 0;
+  let discount: Discount | null = null;
+
+  if (discount_code) {
+    const normalizedCode = discount_code.toUpperCase().trim();
+    const [discountRow] = await db.query<any>(
+      `SELECT * FROM discounts WHERE code = ? AND store_id = ?`,
+      [normalizedCode, store.id]
+    );
+    
+    if (discountRow) {
+      await validateDiscount(db, discountRow as Discount, subtotal, customer_email);
+      discountAmountCents = calculateDiscount(discountRow as Discount, subtotal);
+      discountId = discountRow.id;
+      discountCode = discountRow.code;
+      discount = discountRow as Discount;
+    } else {
+      throw ApiError.notFound('Discount code not found');
+    }
+  }
+
+  const totalCents = subtotal - discountAmountCents;
+
   // Upsert customer (same logic as real checkout)
   const timestamp = now();
   let customerId: string | null = null;
@@ -298,26 +325,80 @@ ordersRoutes.post('/test', async (c) => {
         last_order_at = ?,
         updated_at = ?
       WHERE id = ?`,
-      [subtotal, timestamp, timestamp, customerId]
+      [totalCents, timestamp, timestamp, customerId]
     );
   } else {
     customerId = uuid();
     await db.run(
       `INSERT INTO customers (id, store_id, email, order_count, total_spent_cents, last_order_at)
        VALUES (?, ?, ?, 1, ?, ?)`,
-      [customerId, store.id, customer_email, subtotal, timestamp]
+      [customerId, store.id, customer_email, totalCents, timestamp]
     );
+  }
+
+  // Reserve discount usage atomically BEFORE creating order or deducting inventory
+  // This ensures that if the reservation fails, no order or inventory changes are committed
+  if (discount && discountAmountCents > 0) {
+    const currentTime = now();
+    
+    // Check per-customer limit first
+    // Note: There's a small race condition window here, but for test orders (admin-only),
+    // this is acceptable. The unique constraint on discount_usage will prevent duplicates.
+    if (discount.usage_limit_per_customer !== null) {
+      const [usage] = await db.query<any>(
+        `SELECT COUNT(*) as count FROM discount_usage WHERE discount_id = ? AND customer_email = ?`,
+        [discount.id, customer_email.toLowerCase()]
+      );
+      if (usage && usage.count >= discount.usage_limit_per_customer) {
+        throw ApiError.invalidRequest('You have already used this discount');
+      }
+    }
+    
+    // Atomically increment usage_count only if within global limit
+    // This must happen BEFORE order creation to prevent data inconsistency
+    if (discount.usage_limit !== null) {
+      const result = await db.run(
+        `UPDATE discounts 
+         SET usage_count = usage_count + 1, updated_at = ? 
+         WHERE id = ? 
+           AND status = 'active'
+           AND (starts_at IS NULL OR starts_at <= ?)
+           AND (expires_at IS NULL OR expires_at >= ?)
+           AND usage_count < usage_limit`,
+        [currentTime, discountId, currentTime, currentTime]
+      );
+      
+      if (result.changes === 0) {
+        throw ApiError.invalidRequest('Discount usage limit reached');
+      }
+    } else {
+      // No usage limit, but validate discount is still active
+      const result = await db.run(
+        `UPDATE discounts 
+         SET updated_at = ? 
+         WHERE id = ? 
+           AND status = 'active'
+           AND (starts_at IS NULL OR starts_at <= ?)
+           AND (expires_at IS NULL OR expires_at >= ?)`,
+        [currentTime, discountId, currentTime, currentTime]
+      );
+      
+      if (result.changes === 0) {
+        throw ApiError.invalidRequest('Discount is no longer valid');
+      }
+    }
   }
 
   // Generate order number (timestamp-based to avoid race conditions)
   const orderNumber = generateOrderNumber();
   const orderId = uuid();
 
-  // Create order (with customer link)
+  // Create order (with customer link and discount)
+  // Discount usage has already been reserved atomically above
   await db.run(
-    `INSERT INTO orders (id, store_id, customer_id, number, status, customer_email, subtotal_cents, tax_cents, shipping_cents, total_cents, created_at)
-     VALUES (?, ?, ?, ?, 'paid', ?, ?, 0, 0, ?, ?)`,
-    [orderId, store.id, customerId, orderNumber, customer_email, subtotal, subtotal, timestamp]
+    `INSERT INTO orders (id, store_id, customer_id, number, status, customer_email, subtotal_cents, tax_cents, shipping_cents, total_cents, discount_code, discount_id, discount_amount_cents, created_at)
+     VALUES (?, ?, ?, ?, 'paid', ?, ?, 0, 0, ?, ?, ?, ?, ?)`,
+    [orderId, store.id, customerId, orderNumber, customer_email, subtotal, totalCents, discountCode, discountId, discountAmountCents, timestamp]
   );
 
   // Create order items and deduct inventory
@@ -332,6 +413,24 @@ ordersRoutes.post('/test', async (c) => {
       `UPDATE inventory SET on_hand = on_hand - ?, updated_at = ? WHERE store_id = ? AND sku = ?`,
       [item.qty, timestamp, store.id, item.sku]
     );
+  }
+
+  // Record discount usage for per-customer tracking and audit purposes
+  // The usage_count was already incremented atomically above, this just records the usage
+  if (discount && discountAmountCents > 0) {
+    const [existingUsage] = await db.query<any>(
+      `SELECT id FROM discount_usage WHERE order_id = ? AND discount_id = ?`,
+      [orderId, discountId]
+    );
+    
+    if (!existingUsage) {
+      await db.run(
+        `INSERT INTO discount_usage (id, discount_id, order_id, customer_email, discount_amount_cents)
+         VALUES (?, ?, ?, ?, ?)`,
+        [uuid(), discountId, orderId, customer_email.toLowerCase(), discountAmountCents]
+      );
+    }
+    // If already exists, silently skip (idempotent)
   }
 
   const [order] = await db.query<any>(`SELECT * FROM orders WHERE id = ?`, [orderId]);
@@ -352,11 +451,18 @@ function formatOrder(order: any, items: any[]) {
     },
     amounts: {
       subtotal_cents: order.subtotal_cents,
+      discount_cents: order.discount_amount_cents || 0,
       tax_cents: order.tax_cents,
       shipping_cents: order.shipping_cents,
       total_cents: order.total_cents,
       currency: order.currency,
     },
+    discount: order.discount_code
+      ? {
+          code: order.discount_code,
+          amount_cents: order.discount_amount_cents || 0,
+        }
+      : null,
     tracking: {
       number: order.tracking_number,
       url: order.tracking_url,

@@ -24,10 +24,7 @@ setup.post('/store', authMiddleware, adminOnly, async (c) => {
   const db = getDb(c.env);
   const storeId = uuid();
 
-  await db.run(
-    `INSERT INTO stores (id, name) VALUES (?, ?)`,
-    [storeId, name]
-  );
+  await db.run(`INSERT INTO stores (id, name) VALUES (?, ?)`, [storeId, name]);
 
   // Generate API keys
   const publicKey = generateApiKey('pk');
@@ -76,10 +73,11 @@ setup.post('/stripe', authMiddleware, adminOnly, async (c) => {
   const { store } = c.get('auth');
   const db = getDb(c.env);
 
-  await db.run(
-    `UPDATE stores SET stripe_secret_key = ?, stripe_webhook_secret = ? WHERE id = ?`,
-    [stripeSecretKey, stripeWebhookSecret || null, store.id]
-  );
+  await db.run(`UPDATE stores SET stripe_secret_key = ?, stripe_webhook_secret = ? WHERE id = ?`, [
+    stripeSecretKey,
+    stripeWebhookSecret || null,
+    store.id,
+  ]);
 
   return c.json({ ok: true });
 });

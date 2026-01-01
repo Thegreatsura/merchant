@@ -25,10 +25,10 @@ const CLEANUP_INTERVAL = 60 * 1000; // 1 minute
 function cleanup() {
   const now = Date.now();
   if (now - lastCleanup < CLEANUP_INTERVAL) return;
-  
+
   lastCleanup = now;
   const cutoff = now - 5 * 60 * 1000; // Remove entries older than 5 minutes
-  
+
   for (const [key, value] of counters.entries()) {
     if (value.windowStart < cutoff) {
       counters.delete(key);
@@ -46,24 +46,24 @@ function checkRateLimit(
   config: RateLimitConfig
 ): { allowed: boolean; remaining: number; resetAt: number } {
   cleanup();
-  
+
   const windowStart = getWindowStart(config.windowMs);
   const key = `${identifier}:${windowStart}`;
-  
+
   let counter = counters.get(key);
-  
+
   if (!counter || counter.windowStart !== windowStart) {
     counter = { count: 0, windowStart };
     counters.set(key, counter);
   }
-  
+
   const remaining = Math.max(0, config.requests - counter.count);
   const resetAt = windowStart + config.windowMs;
-  
+
   if (counter.count >= config.requests) {
     return { allowed: false, remaining: 0, resetAt };
   }
-  
+
   counter.count++;
   return { allowed: true, remaining: remaining - 1, resetAt };
 }
@@ -75,18 +75,18 @@ function checkRateLimit(
 export function rateLimitMiddleware() {
   return async (c: Context<{ Bindings: Env }>, next: Next) => {
     const path = c.req.path;
-    
+
     // Get identifier - prefer API key, fall back to IP
     const authHeader = c.req.header('Authorization');
     const apiKey = authHeader?.replace('Bearer ', '');
     const ip = c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || 'unknown';
     const identifier = apiKey || ip;
-    
+
     // Check whitelist
-    if (apiKey && rateLimits.whitelist.some(w => apiKey.startsWith(w))) {
+    if (apiKey && rateLimits.whitelist.some((w) => apiKey.startsWith(w))) {
       return next();
     }
-    
+
     // Determine role from API key prefix
     let role: 'admin' | 'public' | undefined;
     if (apiKey?.startsWith('sk_')) {
@@ -94,29 +94,31 @@ export function rateLimitMiddleware() {
     } else if (apiKey?.startsWith('pk_')) {
       role = 'public';
     }
-    
+
     // Get rate limit config for this request
     const config = getLimitForRequest(path, role);
-    
+
     // Check rate limit
     const { allowed, remaining, resetAt } = checkRateLimit(identifier, config);
-    
+
     // Add headers if configured
     if (rateLimits.includeHeaders) {
       c.header('X-RateLimit-Limit', String(config.requests));
       c.header('X-RateLimit-Remaining', String(remaining));
       c.header('X-RateLimit-Reset', String(Math.ceil(resetAt / 1000)));
     }
-    
+
     if (!allowed) {
       const retryAfter = Math.ceil((resetAt - Date.now()) / 1000);
       c.header('Retry-After', String(retryAfter));
-      
-      throw new ApiError('rate_limit_exceeded', 429, 
+
+      throw new ApiError(
+        'rate_limit_exceeded',
+        429,
         `Rate limit exceeded. Try again in ${retryAfter} seconds.`
       );
     }
-    
+
     return next();
   };
 }
@@ -129,7 +131,7 @@ export function getRateLimitStatus(identifier: string, config: RateLimitConfig) 
   const windowStart = getWindowStart(config.windowMs);
   const key = `${identifier}:${windowStart}`;
   const counter = counters.get(key);
-  
+
   return {
     identifier,
     requests_made: counter?.count || 0,
@@ -139,4 +141,3 @@ export function getRateLimitStatus(identifier: string, config: RateLimitConfig) 
     window_reset_at: new Date(windowStart + config.windowMs).toISOString(),
   };
 }
-

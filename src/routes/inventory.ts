@@ -108,15 +108,17 @@ inventoryRoutes.post('/:sku/adjust', async (c) => {
   const db = getDb(c.env);
 
   // Check exists
-  const [existing] = await db.query<any>(
-    `SELECT * FROM inventory WHERE store_id = ? AND sku = ?`,
-    [store.id, sku]
-  );
+  const [existing] = await db.query<any>(`SELECT * FROM inventory WHERE store_id = ? AND sku = ?`, [
+    store.id,
+    sku,
+  ]);
   if (!existing) throw ApiError.notFound('SKU not found');
 
   // Prevent negative inventory
   if (delta < 0 && existing.on_hand + delta < 0) {
-    throw ApiError.invalidRequest(`Cannot reduce inventory below 0. Current on_hand: ${existing.on_hand}`);
+    throw ApiError.invalidRequest(
+      `Cannot reduce inventory below 0. Current on_hand: ${existing.on_hand}`
+    );
   }
 
   // Update
@@ -132,10 +134,10 @@ inventoryRoutes.post('/:sku/adjust', async (c) => {
   );
 
   // Fetch updated
-  const [level] = await db.query<any>(
-    `SELECT * FROM inventory WHERE store_id = ? AND sku = ?`,
-    [store.id, sku]
-  );
+  const [level] = await db.query<any>(`SELECT * FROM inventory WHERE store_id = ? AND sku = ?`, [
+    store.id,
+    sku,
+  ]);
 
   const available = level.on_hand - level.reserved;
 

@@ -9,7 +9,17 @@ import {
   createColumnHelper,
   SortingState,
 } from '@tanstack/react-table';
-import { Search, ChevronUp, ChevronDown, ChevronsUpDown, Loader2, Mail, Phone, MapPin, ShoppingBag } from 'lucide-react';
+import {
+  Search,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
+  Loader2,
+  Mail,
+  Phone,
+  MapPin,
+  ShoppingBag,
+} from 'lucide-react';
 import { api, Customer } from '../lib/api';
 import { Modal } from '../components/Modal';
 import clsx from 'clsx';
@@ -31,14 +41,15 @@ export function Customers() {
   // Fetch selected customer details
   const { data: customerDetail } = useQuery({
     queryKey: ['customer', selectedCustomer?.id],
-    queryFn: () => selectedCustomer ? api.getCustomer(selectedCustomer.id) : null,
+    queryFn: () => (selectedCustomer ? api.getCustomer(selectedCustomer.id) : null),
     enabled: !!selectedCustomer,
   });
 
   // Fetch customer orders
   const { data: customerOrders } = useQuery({
     queryKey: ['customerOrders', selectedCustomer?.id],
-    queryFn: () => selectedCustomer ? api.getCustomerOrders(selectedCustomer.id, { limit: 10 }) : null,
+    queryFn: () =>
+      selectedCustomer ? api.getCustomerOrders(selectedCustomer.id, { limit: 10 }) : null,
     enabled: !!selectedCustomer,
   });
 
@@ -54,40 +65,39 @@ export function Customers() {
 
   const customers = data?.items || [];
 
-  const columns = useMemo(() => [
-    columnHelper.accessor('name', {
-      header: 'Name',
-      cell: (info) => (
-        <span className="font-mono text-sm">{info.getValue() || '-'}</span>
-      ),
-    }),
-    columnHelper.accessor('email', {
-      header: 'Email',
-      cell: (info) => (
-        <span className="font-mono text-sm">{info.getValue()}</span>
-      ),
-    }),
-    columnHelper.accessor((row) => row.stats.order_count, {
-      id: 'orders',
-      header: 'Orders',
-      cell: (info) => (
-        <span className="font-mono text-sm">{info.getValue()}</span>
-      ),
-    }),
-    columnHelper.accessor((row) => row.stats.total_spent_cents, {
-      id: 'spent',
-      header: 'Total Spent',
-      cell: (info) => (
-        <span className="font-mono text-sm">${(info.getValue() / 100).toFixed(2)}</span>
-      ),
-    }),
-    columnHelper.accessor('created_at', {
-      header: 'First Order',
-      cell: (info) => (
-        <span className="font-mono text-sm">{new Date(info.getValue()).toLocaleDateString()}</span>
-      ),
-    }),
-  ], []);
+  const columns = useMemo(
+    () => [
+      columnHelper.accessor('name', {
+        header: 'Name',
+        cell: (info) => <span className="font-mono text-sm">{info.getValue() || '-'}</span>,
+      }),
+      columnHelper.accessor('email', {
+        header: 'Email',
+        cell: (info) => <span className="font-mono text-sm">{info.getValue()}</span>,
+      }),
+      columnHelper.accessor((row) => row.stats.order_count, {
+        id: 'orders',
+        header: 'Orders',
+        cell: (info) => <span className="font-mono text-sm">{info.getValue()}</span>,
+      }),
+      columnHelper.accessor((row) => row.stats.total_spent_cents, {
+        id: 'spent',
+        header: 'Total Spent',
+        cell: (info) => (
+          <span className="font-mono text-sm">${(info.getValue() / 100).toFixed(2)}</span>
+        ),
+      }),
+      columnHelper.accessor('created_at', {
+        header: 'First Order',
+        cell: (info) => (
+          <span className="font-mono text-sm">
+            {new Date(info.getValue()).toLocaleDateString()}
+          </span>
+        ),
+      }),
+    ],
+    []
+  );
 
   const table = useReactTable({
     data: customers,
@@ -106,7 +116,9 @@ export function Customers() {
     <div>
       {/* Header */}
       <div className="flex items-center justify-between mb-4 h-9">
-        <h1 className="text-lg font-semibold" style={{ color: 'var(--text)' }}>Customers</h1>
+        <h1 className="text-lg font-semibold" style={{ color: 'var(--text)' }}>
+          Customers
+        </h1>
         {isFetching && !isLoading && (
           <Loader2 className="animate-spin" size={16} style={{ color: 'var(--text-muted)' }} />
         )}
@@ -118,11 +130,11 @@ export function Customers() {
         style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
       >
         {/* Search */}
-        <div
-          className="flex items-center border-b"
-          style={{ borderColor: 'var(--border)' }}
-        >
-          <div className="flex-1 flex items-center gap-2 px-4 py-3" style={{ color: 'var(--text-muted)' }}>
+        <div className="flex items-center border-b" style={{ borderColor: 'var(--border)' }}>
+          <div
+            className="flex-1 flex items-center gap-2 px-4 py-3"
+            style={{ color: 'var(--text-muted)' }}
+          >
             <Search size={16} className="flex-shrink-0" />
             <input
               type="text"
@@ -155,7 +167,8 @@ export function Customers() {
                       onClick={header.column.getToggleSortingHandler()}
                       className={clsx(
                         'px-4 py-3 text-left text-xs font-medium uppercase tracking-wide',
-                        header.column.getCanSort() && 'cursor-pointer select-none hover:bg-[var(--bg-hover)]'
+                        header.column.getCanSort() &&
+                          'cursor-pointer select-none hover:bg-[var(--bg-hover)]'
                       )}
                       style={{ color: 'var(--text-muted)' }}
                     >
@@ -212,13 +225,22 @@ export function Customers() {
               {/* Left column */}
               <div className="space-y-4">
                 {/* Contact Info */}
-                <div className="p-3 rounded-lg space-y-3" style={{ border: '1px solid var(--border)' }}>
-                  <h4 className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
+                <div
+                  className="p-3 rounded-lg space-y-3"
+                  style={{ border: '1px solid var(--border)' }}
+                >
+                  <h4
+                    className="text-xs font-medium uppercase tracking-wide"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
                     Contact
                   </h4>
                   <div className="space-y-3">
                     <div>
-                      <label className="block text-xs font-medium uppercase tracking-wide mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                      <label
+                        className="block text-xs font-medium uppercase tracking-wide mb-1.5"
+                        style={{ color: 'var(--text-secondary)' }}
+                      >
                         Name
                       </label>
                       <input
@@ -242,18 +264,34 @@ export function Customers() {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium uppercase tracking-wide mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                      <label
+                        className="block text-xs font-medium uppercase tracking-wide mb-1.5"
+                        style={{ color: 'var(--text-secondary)' }}
+                      >
                         Email
                       </label>
-                      <div className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg" style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border-subtle)' }}>
+                      <div
+                        className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg"
+                        style={{
+                          background: 'var(--bg-subtle)',
+                          border: '1px solid var(--border-subtle)',
+                        }}
+                      >
                         <Mail size={14} style={{ color: 'var(--text-secondary)' }} />
-                        <a href={`mailto:${selectedCustomer.email}`} className="font-mono hover:underline" style={{ color: 'var(--accent)' }}>
+                        <a
+                          href={`mailto:${selectedCustomer.email}`}
+                          className="font-mono hover:underline"
+                          style={{ color: 'var(--accent)' }}
+                        >
                           {selectedCustomer.email}
                         </a>
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium uppercase tracking-wide mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                      <label
+                        className="block text-xs font-medium uppercase tracking-wide mb-1.5"
+                        style={{ color: 'var(--text-secondary)' }}
+                      >
                         Phone
                       </label>
                       <input
@@ -282,19 +320,30 @@ export function Customers() {
                 {/* Stats */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="p-3 rounded-lg" style={{ border: '1px solid var(--border)' }}>
-                    <p className="text-xs uppercase" style={{ color: 'var(--text-secondary)' }}>Orders</p>
-                    <p className="text-xl font-semibold font-mono mt-1">{selectedCustomer.stats.order_count}</p>
+                    <p className="text-xs uppercase" style={{ color: 'var(--text-secondary)' }}>
+                      Orders
+                    </p>
+                    <p className="text-xl font-semibold font-mono mt-1">
+                      {selectedCustomer.stats.order_count}
+                    </p>
                   </div>
                   <div className="p-3 rounded-lg" style={{ border: '1px solid var(--border)' }}>
-                    <p className="text-xs uppercase" style={{ color: 'var(--text-secondary)' }}>Spent</p>
-                    <p className="text-xl font-semibold font-mono mt-1">{formatCurrency(selectedCustomer.stats.total_spent_cents)}</p>
+                    <p className="text-xs uppercase" style={{ color: 'var(--text-secondary)' }}>
+                      Spent
+                    </p>
+                    <p className="text-xl font-semibold font-mono mt-1">
+                      {formatCurrency(selectedCustomer.stats.total_spent_cents)}
+                    </p>
                   </div>
                 </div>
 
                 {/* Addresses */}
                 {customerDetail?.addresses && customerDetail.addresses.length > 0 && (
                   <div className="p-3 rounded-lg" style={{ border: '1px solid var(--border)' }}>
-                    <h4 className="text-xs font-medium uppercase tracking-wide mb-2 flex items-center gap-2" style={{ color: 'var(--text-secondary)' }}>
+                    <h4
+                      className="text-xs font-medium uppercase tracking-wide mb-2 flex items-center gap-2"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
                       <MapPin size={14} />
                       Addresses
                     </h4>
@@ -303,19 +352,31 @@ export function Customers() {
                         <div key={addr.id} className="font-mono text-sm">
                           <div className="flex items-center gap-2 mb-1">
                             {addr.label && (
-                              <span className="text-xs px-1.5 py-0.5 rounded font-sans" style={{ background: 'var(--accent)', color: 'white' }}>
+                              <span
+                                className="text-xs px-1.5 py-0.5 rounded font-sans"
+                                style={{ background: 'var(--accent)', color: 'white' }}
+                              >
                                 {addr.label}
                               </span>
                             )}
                             {addr.is_default && (
-                              <span className="text-xs font-sans" style={{ color: 'var(--text-muted)' }}>Default</span>
+                              <span
+                                className="text-xs font-sans"
+                                style={{ color: 'var(--text-muted)' }}
+                              >
+                                Default
+                              </span>
                             )}
                           </div>
                           {addr.name && <p className="font-medium">{addr.name}</p>}
-                          {addr.company && <p style={{ color: 'var(--text-secondary)' }}>{addr.company}</p>}
+                          {addr.company && (
+                            <p style={{ color: 'var(--text-secondary)' }}>{addr.company}</p>
+                          )}
                           <p>{addr.line1}</p>
                           {addr.line2 && <p>{addr.line2}</p>}
-                          <p>{[addr.city, addr.state, addr.postal_code].filter(Boolean).join(', ')}</p>
+                          <p>
+                            {[addr.city, addr.state, addr.postal_code].filter(Boolean).join(', ')}
+                          </p>
                           <p>{addr.country}</p>
                         </div>
                       ))}
@@ -326,7 +387,10 @@ export function Customers() {
 
               {/* Right column - Recent Orders */}
               <div className="p-3 rounded-lg" style={{ border: '1px solid var(--border)' }}>
-                <h4 className="text-xs font-medium uppercase tracking-wide mb-3 flex items-center gap-2" style={{ color: 'var(--text-secondary)' }}>
+                <h4
+                  className="text-xs font-medium uppercase tracking-wide mb-3 flex items-center gap-2"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
                   <ShoppingBag size={14} />
                   Recent Orders
                 </h4>
@@ -345,8 +409,15 @@ export function Customers() {
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="font-mono text-sm">{formatCurrency(order.amounts.total_cents)}</p>
-                          <p className="text-xs font-mono capitalize" style={{ color: 'var(--text-muted)' }}>{order.status}</p>
+                          <p className="font-mono text-sm">
+                            {formatCurrency(order.amounts.total_cents)}
+                          </p>
+                          <p
+                            className="text-xs font-mono capitalize"
+                            style={{ color: 'var(--text-muted)' }}
+                          >
+                            {order.status}
+                          </p>
                         </div>
                       </div>
                     ))}
@@ -360,10 +431,16 @@ export function Customers() {
             </div>
 
             {/* Timestamp */}
-            <div className="text-xs font-mono pt-4 border-t" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
+            <div
+              className="text-xs font-mono pt-4 border-t"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
+            >
               Customer since {new Date(selectedCustomer.created_at).toLocaleString()}
               {selectedCustomer.stats.last_order_at && (
-                <span> · Last order {new Date(selectedCustomer.stats.last_order_at).toLocaleString()}</span>
+                <span>
+                  {' '}
+                  · Last order {new Date(selectedCustomer.stats.last_order_at).toLocaleString()}
+                </span>
               )}
             </div>
           </div>

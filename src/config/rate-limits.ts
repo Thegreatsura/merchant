@@ -5,8 +5,8 @@
 // Limits are per API key, per window
 
 export type RateLimitConfig = {
-  requests: number;  // Max requests allowed
-  windowMs: number;  // Time window in milliseconds
+  requests: number; // Max requests allowed
+  windowMs: number; // Time window in milliseconds
 };
 
 export const rateLimits = {
@@ -57,10 +57,7 @@ export const rateLimits = {
 } as const;
 
 // Helper to get limit for a specific request
-export function getLimitForRequest(
-  path: string,
-  role?: 'admin' | 'public'
-): RateLimitConfig {
+export function getLimitForRequest(path: string, role?: 'admin' | 'public'): RateLimitConfig {
   // Check endpoint-specific overrides first
   for (const [prefix, config] of Object.entries(rateLimits.endpoints)) {
     if (path.startsWith(prefix)) {
@@ -76,4 +73,3 @@ export function getLimitForRequest(
   // Fall back to default
   return rateLimits.default;
 }
-

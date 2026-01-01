@@ -58,15 +58,15 @@ ordersRoutes.get('/', async (c) => {
 
   // Batch fetch all order items (avoids N+1 query)
   const orderIds = orderList.map((o) => o.id);
-  let itemsByOrder: Record<string, any[]> = {};
-  
+  const itemsByOrder: Record<string, any[]> = {};
+
   if (orderIds.length > 0) {
     const placeholders = orderIds.map(() => '?').join(',');
     const allItems = await db.query<any>(
       `SELECT * FROM order_items WHERE order_id IN (${placeholders})`,
       orderIds
     );
-    
+
     // Group items by order_id
     for (const item of allItems) {
       if (!itemsByOrder[item.order_id]) {
@@ -95,13 +95,15 @@ ordersRoutes.get('/:orderId', async (c) => {
   const { store } = c.get('auth');
   const db = getDb(c.env);
 
-  const [order] = await db.query<any>(
-    `SELECT * FROM orders WHERE id = ? AND store_id = ?`,
-    [orderId, store.id]
-  );
+  const [order] = await db.query<any>(`SELECT * FROM orders WHERE id = ? AND store_id = ?`, [
+    orderId,
+    store.id,
+  ]);
   if (!order) throw ApiError.notFound('Order not found');
 
-  const orderItems = await db.query<any>(`SELECT * FROM order_items WHERE order_id = ?`, [order.id]);
+  const orderItems = await db.query<any>(`SELECT * FROM order_items WHERE order_id = ?`, [
+    order.id,
+  ]);
 
   return c.json(formatOrder(order, orderItems));
 });
@@ -115,13 +117,21 @@ ordersRoutes.patch('/:orderId', async (c) => {
   const { store } = c.get('auth');
   const db = getDb(c.env);
 
-  const [order] = await db.query<any>(
-    `SELECT * FROM orders WHERE id = ? AND store_id = ?`,
-    [orderId, store.id]
-  );
+  const [order] = await db.query<any>(`SELECT * FROM orders WHERE id = ? AND store_id = ?`, [
+    orderId,
+    store.id,
+  ]);
   if (!order) throw ApiError.notFound('Order not found');
 
-  const validStatuses = ['pending', 'paid', 'processing', 'shipped', 'delivered', 'refunded', 'canceled'];
+  const validStatuses = [
+    'pending',
+    'paid',
+    'processing',
+    'shipped',
+    'delivered',
+    'refunded',
+    'canceled',
+  ];
   const updates: string[] = [];
   const params: unknown[] = [];
 
@@ -156,22 +166,19 @@ ordersRoutes.patch('/:orderId', async (c) => {
   params.push(orderId);
   params.push(store.id);
 
-  await db.run(
-    `UPDATE orders SET ${updates.join(', ')} WHERE id = ? AND store_id = ?`,
-    params
-  );
+  await db.run(`UPDATE orders SET ${updates.join(', ')} WHERE id = ? AND store_id = ?`, params);
 
   const [updated] = await db.query<any>(`SELECT * FROM orders WHERE id = ?`, [orderId]);
   const orderItems = await db.query<any>(`SELECT * FROM order_items WHERE order_id = ?`, [orderId]);
 
   // Dispatch webhooks for status changes
   const formattedOrder = formatOrder(updated, orderItems);
-  
+
   if (status !== undefined && status !== order.status) {
     // Determine specific event type
     let eventType: WebhookEventType = 'order.updated';
     if (status === 'shipped') eventType = 'order.shipped';
-    
+
     await dispatchWebhooks(c.env, c.executionCtx, store.id, eventType, {
       order: formattedOrder,
       previous_status: order.status,
@@ -192,10 +199,10 @@ ordersRoutes.post('/:orderId/refund', async (c) => {
 
   const db = getDb(c.env);
 
-  const [order] = await db.query<any>(
-    `SELECT * FROM orders WHERE id = ? AND store_id = ?`,
-    [orderId, store.id]
-  );
+  const [order] = await db.query<any>(`SELECT * FROM orders WHERE id = ? AND store_id = ?`, [
+    orderId,
+    store.id,
+  ]);
   if (!order) throw ApiError.notFound('Order not found');
   if (order.status === 'refunded') throw ApiError.conflict('Order already refunded');
   if (!order.stripe_payment_intent_id) {
@@ -217,11 +224,13 @@ ordersRoutes.post('/:orderId/refund', async (c) => {
 
     if (!amountCents || amountCents >= order.total_cents) {
       await db.run(`UPDATE orders SET status = 'refunded' WHERE id = ?`, [orderId]);
-      
+
       // Dispatch refund webhook
       const [refundedOrder] = await db.query<any>(`SELECT * FROM orders WHERE id = ?`, [orderId]);
-      const orderItems = await db.query<any>(`SELECT * FROM order_items WHERE order_id = ?`, [orderId]);
-      
+      const orderItems = await db.query<any>(`SELECT * FROM order_items WHERE order_id = ?`, [
+        orderId,
+      ]);
+
       await dispatchWebhooks(c.env, c.executionCtx, store.id, 'order.refunded', {
         order: formatOrder(refundedOrder, orderItems),
         refund: {
@@ -259,17 +268,17 @@ ordersRoutes.post('/test', async (c) => {
       throw ApiError.invalidRequest('Each item needs sku and qty > 0');
     }
 
-    const [variant] = await db.query<any>(
-      `SELECT * FROM variants WHERE store_id = ? AND sku = ?`,
-      [store.id, sku]
-    );
+    const [variant] = await db.query<any>(`SELECT * FROM variants WHERE store_id = ? AND sku = ?`, [
+      store.id,
+      sku,
+    ]);
     if (!variant) throw ApiError.notFound(`SKU not found: ${sku}`);
 
     // Check inventory
-    const [inv] = await db.query<any>(
-      `SELECT * FROM inventory WHERE store_id = ? AND sku = ?`,
-      [store.id, sku]
-    );
+    const [inv] = await db.query<any>(`SELECT * FROM inventory WHERE store_id = ? AND sku = ?`, [
+      store.id,
+      sku,
+    ]);
     const available = (inv?.on_hand ?? 0) - (inv?.reserved ?? 0);
     if (available < qty) throw ApiError.insufficientInventory(sku);
 
@@ -294,7 +303,7 @@ ordersRoutes.post('/test', async (c) => {
       `SELECT * FROM discounts WHERE code = ? AND store_id = ?`,
       [normalizedCode, store.id]
     );
-    
+
     if (discountRow) {
       await validateDiscount(db, discountRow as Discount, subtotal, customer_email);
       discountAmountCents = calculateDiscount(discountRow as Discount, subtotal);
@@ -340,7 +349,7 @@ ordersRoutes.post('/test', async (c) => {
   // This ensures that if the reservation fails, no order or inventory changes are committed
   if (discount && discountAmountCents > 0) {
     const currentTime = now();
-    
+
     // Check per-customer limit first
     // Note: There's a small race condition window here, but for test orders (admin-only),
     // this is acceptable. The unique constraint on discount_usage will prevent duplicates.
@@ -353,7 +362,7 @@ ordersRoutes.post('/test', async (c) => {
         throw ApiError.invalidRequest('You have already used this discount');
       }
     }
-    
+
     // Atomically increment usage_count only if within global limit
     // This must happen BEFORE order creation to prevent data inconsistency
     if (discount.usage_limit !== null) {
@@ -367,7 +376,7 @@ ordersRoutes.post('/test', async (c) => {
            AND usage_count < usage_limit`,
         [currentTime, discountId, currentTime, currentTime]
       );
-      
+
       if (result.changes === 0) {
         throw ApiError.invalidRequest('Discount usage limit reached');
       }
@@ -382,7 +391,7 @@ ordersRoutes.post('/test', async (c) => {
            AND (expires_at IS NULL OR expires_at >= ?)`,
         [currentTime, discountId, currentTime, currentTime]
       );
-      
+
       if (result.changes === 0) {
         throw ApiError.invalidRequest('Discount is no longer valid');
       }
@@ -398,7 +407,19 @@ ordersRoutes.post('/test', async (c) => {
   await db.run(
     `INSERT INTO orders (id, store_id, customer_id, number, status, customer_email, subtotal_cents, tax_cents, shipping_cents, total_cents, discount_code, discount_id, discount_amount_cents, created_at)
      VALUES (?, ?, ?, ?, 'paid', ?, ?, 0, 0, ?, ?, ?, ?, ?)`,
-    [orderId, store.id, customerId, orderNumber, customer_email, subtotal, totalCents, discountCode, discountId, discountAmountCents, timestamp]
+    [
+      orderId,
+      store.id,
+      customerId,
+      orderNumber,
+      customer_email,
+      subtotal,
+      totalCents,
+      discountCode,
+      discountId,
+      discountAmountCents,
+      timestamp,
+    ]
   );
 
   // Create order items and deduct inventory
@@ -422,7 +443,7 @@ ordersRoutes.post('/test', async (c) => {
       `SELECT id FROM discount_usage WHERE order_id = ? AND discount_id = ?`,
       [orderId, discountId]
     );
-    
+
     if (!existingUsage) {
       await db.run(
         `INSERT INTO discount_usage (id, discount_id, order_id, customer_email, discount_amount_cents)

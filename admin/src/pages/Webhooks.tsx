@@ -1,6 +1,17 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Loader2, RefreshCw, Plus, Trash2, Copy, Check, AlertCircle, CheckCircle, Clock, RotateCw } from 'lucide-react';
+import {
+  Loader2,
+  RefreshCw,
+  Plus,
+  Trash2,
+  Copy,
+  Check,
+  AlertCircle,
+  CheckCircle,
+  Clock,
+  RotateCw,
+} from 'lucide-react';
 import { api, Webhook, WebhookDetail } from '../lib/api';
 import { Modal } from '../components/Modal';
 
@@ -9,7 +20,11 @@ const WEBHOOK_EVENTS = [
   { value: 'order.updated', label: 'Order Updated', description: 'When order status changes' },
   { value: 'order.shipped', label: 'Order Shipped', description: 'When order is marked shipped' },
   { value: 'order.refunded', label: 'Order Refunded', description: 'When order is refunded' },
-  { value: 'inventory.low', label: 'Low Inventory', description: 'When stock drops below threshold' },
+  {
+    value: 'inventory.low',
+    label: 'Low Inventory',
+    description: 'When stock drops below threshold',
+  },
   { value: 'order.*', label: 'All Order Events', description: 'Subscribe to all order events' },
   { value: '*', label: 'All Events', description: 'Subscribe to everything' },
 ] as const;
@@ -100,7 +115,9 @@ export function Webhooks() {
     <div>
       {/* Header */}
       <div className="flex items-center justify-between mb-4 h-9">
-        <h1 className="text-lg font-semibold" style={{ color: 'var(--text)' }}>Webhooks</h1>
+        <h1 className="text-lg font-semibold" style={{ color: 'var(--text)' }}>
+          Webhooks
+        </h1>
         <div className="flex items-center gap-2">
           <button
             onClick={() => queryClient.invalidateQueries({ queryKey: ['webhooks'] })}
@@ -183,7 +200,10 @@ export function Webhooks() {
       <Modal open={createModal} onClose={() => setCreateModal(false)} title="New Webhook" size="md">
         <form onSubmit={handleCreate} className="space-y-4">
           <div>
-            <label className="block text-xs font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+            <label
+              className="block text-xs font-medium uppercase tracking-wide mb-2"
+              style={{ color: 'var(--text-secondary)' }}
+            >
               Endpoint URL
             </label>
             <input
@@ -202,10 +222,16 @@ export function Webhooks() {
           </div>
 
           <div>
-            <label className="block text-xs font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+            <label
+              className="block text-xs font-medium uppercase tracking-wide mb-2"
+              style={{ color: 'var(--text-secondary)' }}
+            >
               Events
             </label>
-            <div className="space-y-2 max-h-48 overflow-y-auto p-3 rounded-lg" style={{ border: '1px solid var(--border)' }}>
+            <div
+              className="space-y-2 max-h-48 overflow-y-auto p-3 rounded-lg"
+              style={{ border: '1px solid var(--border)' }}
+            >
               {WEBHOOK_EVENTS.map((event) => (
                 <label
                   key={event.value}
@@ -228,7 +254,10 @@ export function Webhooks() {
             </div>
           </div>
 
-          <div className="flex gap-2 justify-end pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+          <div
+            className="flex gap-2 justify-end pt-4 border-t"
+            style={{ borderColor: 'var(--border)' }}
+          >
             <button
               type="button"
               onClick={() => setCreateModal(false)}
@@ -250,12 +279,7 @@ export function Webhooks() {
       </Modal>
 
       {/* Secret Display Modal */}
-      <Modal
-        open={!!newSecret}
-        onClose={() => setNewSecret(null)}
-        title="Webhook Secret"
-        size="sm"
-      >
+      <Modal open={!!newSecret} onClose={() => setNewSecret(null)} title="Webhook Secret" size="sm">
         <div className="space-y-4">
           <div className="p-3 rounded-lg" style={{ border: '1px solid var(--border)' }}>
             <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
@@ -297,17 +321,28 @@ export function Webhooks() {
           <div className="space-y-5">
             {/* URL & Status */}
             <div className="p-3 rounded-lg" style={{ border: '1px solid var(--border)' }}>
-              <h4 className="text-xs font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+              <h4
+                className="text-xs font-medium uppercase tracking-wide mb-2"
+                style={{ color: 'var(--text-secondary)' }}
+              >
                 Endpoint
               </h4>
               <p className="font-mono text-sm break-all">{webhookDetail.url}</p>
               <div className="mt-3 pt-3 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
-                <h4 className="text-xs font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+                <h4
+                  className="text-xs font-medium uppercase tracking-wide mb-2"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
                   Status
                 </h4>
                 <select
                   value={webhookDetail.status}
-                  onChange={(e) => updateMutation.mutate({ id: webhookDetail.id, data: { status: e.target.value } })}
+                  onChange={(e) =>
+                    updateMutation.mutate({
+                      id: webhookDetail.id,
+                      data: { status: e.target.value },
+                    })
+                  }
                   disabled={updateMutation.isPending}
                   className="px-3 py-2 text-sm font-mono rounded-lg focus:outline-none focus:ring-2"
                   style={{
@@ -324,7 +359,10 @@ export function Webhooks() {
 
             {/* Events */}
             <div className="p-3 rounded-lg" style={{ border: '1px solid var(--border)' }}>
-              <h4 className="text-xs font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+              <h4
+                className="text-xs font-medium uppercase tracking-wide mb-2"
+                style={{ color: 'var(--text-secondary)' }}
+              >
                 Subscribed Events
               </h4>
               <div className="flex flex-wrap gap-2">
@@ -332,7 +370,10 @@ export function Webhooks() {
                   <span
                     key={event}
                     className="px-2 py-1 text-xs font-mono rounded-lg"
-                    style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border-subtle)' }}
+                    style={{
+                      background: 'var(--bg-subtle)',
+                      border: '1px solid var(--border-subtle)',
+                    }}
                   >
                     {event}
                   </span>
@@ -342,7 +383,10 @@ export function Webhooks() {
 
             {/* Recent Deliveries */}
             <div className="p-3 rounded-lg" style={{ border: '1px solid var(--border)' }}>
-              <h4 className="text-xs font-medium uppercase tracking-wide mb-3" style={{ color: 'var(--text-secondary)' }}>
+              <h4
+                className="text-xs font-medium uppercase tracking-wide mb-3"
+                style={{ color: 'var(--text-secondary)' }}
+              >
                 Recent Deliveries
               </h4>
               {webhookDetail.recent_deliveries.length === 0 ? (
@@ -385,7 +429,10 @@ export function Webhooks() {
             </div>
 
             {/* Footer: Timestamp + Actions */}
-            <div className="flex items-center justify-between pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+            <div
+              className="flex items-center justify-between pt-4 border-t"
+              style={{ borderColor: 'var(--border)' }}
+            >
               <p className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
                 Created {new Date(webhookDetail.created_at).toLocaleString()}
               </p>
@@ -423,4 +470,3 @@ export function Webhooks() {
     </div>
   );
 }
-

@@ -47,9 +47,12 @@ async function signPayload(payload: string, secret: string): Promise<string> {
 export function generateWebhookSecret(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
-  return 'whsec_' + Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+  return (
+    'whsec_' +
+    Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('')
+  );
 }
 
 /**
@@ -79,7 +82,7 @@ export async function dispatchWebhooks(
 
   for (const webhook of webhooks) {
     const subscribedEvents: string[] = JSON.parse(webhook.events);
-    
+
     // Check if webhook is subscribed to this event type
     // Support wildcard subscriptions like 'order.*'
     const isSubscribed = subscribedEvents.some((e) => {
@@ -140,10 +143,11 @@ async function deliverWebhook(
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       // Update attempt count
-      await db.run(
-        `UPDATE webhook_deliveries SET attempts = ?, last_attempt_at = ? WHERE id = ?`,
-        [attempt, now(), deliveryId]
-      );
+      await db.run(`UPDATE webhook_deliveries SET attempts = ?, last_attempt_at = ? WHERE id = ?`, [
+        attempt,
+        now(),
+        deliveryId,
+      ]);
 
       const response = await fetch(url, {
         method: 'POST',
@@ -282,4 +286,3 @@ export async function retryFailedDeliveries(env: Env, ctx: ExecutionContext): Pr
 
   return failed.length;
 }
-

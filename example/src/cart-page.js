@@ -3,7 +3,14 @@
 // ============================================================
 
 import { createCart, addItemsToCart, checkout } from './api.js';
-import { getCart, updateQuantity, removeFromCart, clearCart, getCartTotal, updateCartBadge } from './cart.js';
+import {
+  getCart,
+  updateQuantity,
+  removeFromCart,
+  clearCart,
+  getCartTotal,
+  updateCartBadge,
+} from './cart.js';
 
 const SUCCESS_URL = window.location.origin + '/success.html';
 const CANCEL_URL = window.location.origin + '/cart.html';
@@ -14,7 +21,7 @@ function formatPrice(cents) {
 
 function renderCart() {
   updateCartBadge();
-  
+
   const container = document.getElementById('cart-items');
   const emptyState = document.getElementById('empty-cart');
   const cartContent = document.getElementById('cart-content');
@@ -30,7 +37,9 @@ function renderCart() {
   emptyState.style.display = 'none';
   cartContent.style.display = 'block';
 
-  container.innerHTML = items.map(item => `
+  container.innerHTML = items
+    .map(
+      (item) => `
     <div class="flex gap-4 py-4 border-b border-zinc-800" data-sku="${item.sku}">
       <div class="w-20 h-20 bg-zinc-900 rounded-lg overflow-hidden flex-shrink-0">
         <img 
@@ -56,17 +65,19 @@ function renderCart() {
         <p class="font-medium text-white">$${formatPrice(item.price_cents * item.qty)}</p>
       </div>
     </div>
-  `).join('');
+  `
+    )
+    .join('');
 
   subtotalEl.textContent = `$${formatPrice(getCartTotal())}`;
 
   // Bind quantity buttons
-  container.querySelectorAll('.qty-btn').forEach(btn => {
+  container.querySelectorAll('.qty-btn').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       const row = e.target.closest('[data-sku]');
       const sku = row.dataset.sku;
       const delta = parseInt(e.target.dataset.delta);
-      const item = getCart().find(i => i.sku === sku);
+      const item = getCart().find((i) => i.sku === sku);
       if (item) {
         updateQuantity(sku, item.qty + delta);
         renderCart();
@@ -75,7 +86,7 @@ function renderCart() {
   });
 
   // Bind remove buttons
-  container.querySelectorAll('.remove-btn').forEach(btn => {
+  container.querySelectorAll('.remove-btn').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       const row = e.target.closest('[data-sku]');
       removeFromCart(row.dataset.sku);
@@ -88,9 +99,9 @@ async function handleCheckout() {
   const emailInput = document.getElementById('email');
   const checkoutBtn = document.getElementById('checkout-btn');
   const errorEl = document.getElementById('checkout-error');
-  
+
   const email = emailInput.value.trim();
-  
+
   if (!email || !email.includes('@')) {
     errorEl.textContent = 'Please enter a valid email address';
     errorEl.style.display = 'block';
@@ -104,22 +115,24 @@ async function handleCheckout() {
 
   try {
     const items = getCart();
-    
+
     // Create cart in Merchant
     const cart = await createCart(email);
-    
+
     // Add items
-    await addItemsToCart(cart.id, items.map(i => ({ sku: i.sku, qty: i.qty })));
-    
+    await addItemsToCart(
+      cart.id,
+      items.map((i) => ({ sku: i.sku, qty: i.qty }))
+    );
+
     // Start checkout
     const { checkout_url } = await checkout(cart.id, SUCCESS_URL, CANCEL_URL);
-    
+
     // Clear local cart before redirect
     clearCart();
-    
+
     // Redirect to Stripe
     window.location.href = checkout_url;
-    
   } catch (err) {
     errorEl.textContent = err.message || 'Checkout failed. Please try again.';
     errorEl.style.display = 'block';
@@ -132,12 +145,11 @@ async function handleCheckout() {
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
   renderCart();
-  
+
   document.getElementById('checkout-btn')?.addEventListener('click', handleCheckout);
-  
+
   // Allow enter key on email input
   document.getElementById('email')?.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') handleCheckout();
   });
 });
-

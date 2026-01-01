@@ -99,6 +99,7 @@ POST /v1/inventory/{sku}/adjust
 ```
 
 **Query params:**
+
 - `limit` — Max items per page (default 100, max 500)
 - `cursor` — Pagination cursor (SKU of last item)
 - `low_stock` — Filter items with ≤10 available
@@ -128,6 +129,7 @@ POST /v1/carts/{id}/checkout
 ```
 
 **Checkout options:**
+
 - `collect_shipping` — Enable shipping address collection
 - `shipping_countries` — Allowed countries (default: `["US"]`)
 - `shipping_options` — Custom shipping rates (optional, has sensible defaults)
@@ -240,9 +242,11 @@ Payloads are signed with HMAC-SHA256. Verify with the `X-Merchant-Signature` hea
 Set your Stripe webhook endpoint to `https://your-domain/v1/webhooks/stripe`
 
 Events handled:
+
 - `checkout.session.completed` → Creates order, deducts inventory
 
 For local development:
+
 ```bash
 stripe listen --forward-to localhost:8787/v1/webhooks/stripe
 ```
@@ -250,6 +254,7 @@ stripe listen --forward-to localhost:8787/v1/webhooks/stripe
 ## Rate Limiting
 
 All endpoints return rate limit headers:
+
 - `X-RateLimit-Limit` — Requests allowed per window
 - `X-RateLimit-Remaining` — Requests remaining
 - `X-RateLimit-Reset` — Unix timestamp when window resets
@@ -275,6 +280,7 @@ cd example && npm run dev
 Update `example/src/config.js` with your public key (`pk_...`), then open http://localhost:3000
 
 Features:
+
 - **Orders** — Search, filter by status, update tracking, one-click refunds
 - **Inventory** — View stock levels, quick adjustments (+10, +50, etc.)
 - **Products** — Create products, add/edit variants, upload images
@@ -304,14 +310,13 @@ src/
 
 ## Stack
 
-| Component | Technology |
-|-----------|------------|
-| Runtime | Cloudflare Workers |
-| Framework | Hono |
-| Database | D1 (SQLite) |
-| Images | R2 |
-| Payments | Stripe |
-
+| Component | Technology         |
+| --------- | ------------------ |
+| Runtime   | Cloudflare Workers |
+| Framework | Hono               |
+| Database  | D1 (SQLite)        |
+| Images    | R2                 |
+| Payments  | Stripe             |
 
 ## License
 

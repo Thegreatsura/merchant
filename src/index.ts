@@ -31,7 +31,13 @@ app.onError((err, c) => {
 
   if (err instanceof ApiError) {
     return c.json(
-      { error: { code: err.code, message: err.message, ...(err.details && { details: err.details }) } },
+      {
+        error: {
+          code: err.code,
+          message: err.message,
+          ...(err.details && { details: err.details }),
+        },
+      },
       err.statusCode as any
     );
   }
@@ -49,8 +55,8 @@ app.route('/v1/inventory', inventory);
 app.route('/v1/carts', checkout);
 app.route('/v1/orders', orders);
 app.route('/v1/customers', customers);
-app.route('/v1/webhooks', webhooks);        // Stripe incoming webhooks
-app.route('/v1/webhooks', webhooksRoutes);  // Outbound webhook management
+app.route('/v1/webhooks', webhooks); // Stripe incoming webhooks
+app.route('/v1/webhooks', webhooksRoutes); // Outbound webhook management
 app.route('/v1/images', images);
 app.route('/v1/discounts', discounts);
 

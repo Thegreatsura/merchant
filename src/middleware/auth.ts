@@ -11,7 +11,7 @@ export const authMiddleware = createMiddleware<{
   Variables: { auth: AuthContext };
 }>(async (c, next) => {
   const authHeader = c.req.header('Authorization');
-  
+
   if (!authHeader?.startsWith('Bearer ')) {
     throw ApiError.unauthorized('Missing or invalid Authorization header');
   }
@@ -34,7 +34,7 @@ export const authMiddleware = createMiddleware<{
   }
 
   const row = result[0];
-  
+
   if (row.status === 'disabled') {
     throw ApiError.forbidden('Store is disabled');
   }
@@ -59,11 +59,11 @@ export const adminOnly = createMiddleware<{
   Variables: { auth: AuthContext };
 }>(async (c, next) => {
   const auth = c.get('auth');
-  
+
   if (auth.role !== 'admin') {
     throw ApiError.forbidden('Admin access required');
   }
-  
+
   await next();
 });
 
@@ -72,7 +72,7 @@ export async function hashKey(key: string): Promise<string> {
   const data = new TextEncoder().encode(key);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   return Array.from(new Uint8Array(hashBuffer))
-    .map(b => b.toString(16).padStart(2, '0'))
+    .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 }
 
@@ -80,6 +80,8 @@ export async function hashKey(key: string): Promise<string> {
 export function generateApiKey(prefix: 'pk' | 'sk'): string {
   const bytes = new Uint8Array(24);
   crypto.getRandomValues(bytes);
-  const key = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  const key = Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
   return `${prefix}_${key}`;
 }

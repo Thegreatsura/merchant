@@ -37,10 +37,7 @@ export function SlideOver({ open, onClose, title, children, width = 'md' }: Slid
   return (
     <div className="fixed inset-0 z-50 overflow-hidden">
       {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/40 transition-opacity"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-black/40 transition-opacity" onClick={onClose} />
 
       {/* Panel */}
       <div className="absolute inset-y-0 right-0 flex max-w-full">
@@ -73,13 +70,10 @@ export function SlideOver({ open, onClose, title, children, width = 'md' }: Slid
             </div>
 
             {/* Content */}
-            <div className="flex-1 px-6 py-4">
-              {children}
-            </div>
+            <div className="flex-1 px-6 py-4">{children}</div>
           </div>
         </div>
       </div>
     </div>
   );
 }
-

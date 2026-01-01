@@ -1,6 +1,15 @@
 import clsx from 'clsx';
 
-type Status = 'pending' | 'paid' | 'processing' | 'shipped' | 'delivered' | 'refunded' | 'canceled' | 'active' | 'draft';
+type Status =
+  | 'pending'
+  | 'paid'
+  | 'processing'
+  | 'shipped'
+  | 'delivered'
+  | 'refunded'
+  | 'canceled'
+  | 'active'
+  | 'draft';
 
 const statusStyles: Record<Status, string> = {
   pending: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
@@ -26,4 +35,3 @@ export function StatusBadge({ status }: { status: Status }) {
     </span>
   );
 }
-

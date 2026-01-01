@@ -63,7 +63,9 @@ export class ApiError extends Error {
   }
 
   static insufficientInventory(sku: string) {
-    return new ApiError('insufficient_inventory', 409, `Insufficient inventory for SKU: ${sku}`, { sku });
+    return new ApiError('insufficient_inventory', 409, `Insufficient inventory for SKU: ${sku}`, {
+      sku,
+    });
   }
 
   static stripeError(message: string) {

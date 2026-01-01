@@ -21,7 +21,8 @@ export default function App() {
     const auth = getAuth();
     if (auth.isAuthenticated) {
       // Validate the stored credentials
-      api.getOrders({ limit: 1 })
+      api
+        .getOrders({ limit: 1 })
         .then(() => setIsAuthenticated(true))
         .catch(() => {
           clearAuth();
@@ -70,7 +71,10 @@ export default function App() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg-app)' }}>
+      <div
+        className="min-h-screen flex items-center justify-center"
+        style={{ background: 'var(--bg-app)' }}
+      >
         <div className="animate-pulse text-[var(--text-muted)]">Loading...</div>
       </div>
     );
@@ -99,4 +103,3 @@ export default function App() {
     </Layout>
   );
 }
-

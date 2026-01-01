@@ -9,7 +9,16 @@ import {
   createColumnHelper,
   SortingState,
 } from '@tanstack/react-table';
-import { Search, ChevronUp, ChevronDown, ChevronsUpDown, Loader2, RefreshCw, AlertTriangle, Package } from 'lucide-react';
+import {
+  Search,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
+  Loader2,
+  RefreshCw,
+  AlertTriangle,
+  Package,
+} from 'lucide-react';
 import { api, InventoryItem } from '../lib/api';
 import { Modal } from '../components/Modal';
 import clsx from 'clsx';
@@ -45,42 +54,47 @@ export function Inventory() {
     },
   });
 
-  const columns = useMemo(() => [
-    columnHelper.accessor('sku', {
-      header: 'SKU',
-      cell: (info) => <span className="font-mono text-sm">{info.getValue()}</span>,
-    }),
-    columnHelper.accessor('product_title', {
-      header: 'Product',
-      cell: (info) => <span className="font-mono text-sm">{info.getValue() || '-'}</span>,
-    }),
-    columnHelper.accessor('on_hand', {
-      header: 'On Hand',
-      cell: (info) => <span className="font-mono text-sm">{info.getValue()}</span>,
-    }),
-    columnHelper.accessor('reserved', {
-      header: 'Reserved',
-      cell: (info) => <span className="font-mono text-sm">{info.getValue()}</span>,
-    }),
-    columnHelper.accessor('available', {
-      header: 'Available',
-      cell: (info) => {
-        const value = info.getValue();
-        const isLow = value <= 5 && value > 0;
-        const isOut = value <= 0;
-        return (
-          <span className={clsx(
-            'font-mono text-sm',
-            isOut && 'text-red-500',
-            isLow && 'text-amber-500'
-          )}>
-            {isLow && <AlertTriangle size={12} className="inline mr-1" />}
-            {value}
-          </span>
-        );
-      },
-    }),
-  ], []);
+  const columns = useMemo(
+    () => [
+      columnHelper.accessor('sku', {
+        header: 'SKU',
+        cell: (info) => <span className="font-mono text-sm">{info.getValue()}</span>,
+      }),
+      columnHelper.accessor('product_title', {
+        header: 'Product',
+        cell: (info) => <span className="font-mono text-sm">{info.getValue() || '-'}</span>,
+      }),
+      columnHelper.accessor('on_hand', {
+        header: 'On Hand',
+        cell: (info) => <span className="font-mono text-sm">{info.getValue()}</span>,
+      }),
+      columnHelper.accessor('reserved', {
+        header: 'Reserved',
+        cell: (info) => <span className="font-mono text-sm">{info.getValue()}</span>,
+      }),
+      columnHelper.accessor('available', {
+        header: 'Available',
+        cell: (info) => {
+          const value = info.getValue();
+          const isLow = value <= 5 && value > 0;
+          const isOut = value <= 0;
+          return (
+            <span
+              className={clsx(
+                'font-mono text-sm',
+                isOut && 'text-red-500',
+                isLow && 'text-amber-500'
+              )}
+            >
+              {isLow && <AlertTriangle size={12} className="inline mr-1" />}
+              {value}
+            </span>
+          );
+        },
+      }),
+    ],
+    []
+  );
 
   const table = useReactTable({
     data: inventory,
@@ -105,7 +119,9 @@ export function Inventory() {
     <div>
       {/* Header */}
       <div className="flex items-center justify-between mb-4 h-9">
-        <h1 className="text-lg font-semibold" style={{ color: 'var(--text)' }}>Inventory</h1>
+        <h1 className="text-lg font-semibold" style={{ color: 'var(--text)' }}>
+          Inventory
+        </h1>
         <button
           onClick={() => queryClient.invalidateQueries({ queryKey: ['inventory'] })}
           disabled={isFetching}
@@ -122,11 +138,11 @@ export function Inventory() {
         style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
       >
         {/* Search */}
-        <div
-          className="flex items-center border-b"
-          style={{ borderColor: 'var(--border)' }}
-        >
-          <div className="flex-1 flex items-center gap-2 px-4 py-3" style={{ color: 'var(--text-muted)' }}>
+        <div className="flex items-center border-b" style={{ borderColor: 'var(--border)' }}>
+          <div
+            className="flex-1 flex items-center gap-2 px-4 py-3"
+            style={{ color: 'var(--text-muted)' }}
+          >
             <Search size={16} className="flex-shrink-0" />
             <input
               type="text"
@@ -156,10 +172,15 @@ export function Inventory() {
                   {headerGroup.headers.map((header) => (
                     <th
                       key={header.id}
-                      onClick={header.column.getCanSort() ? header.column.getToggleSortingHandler() : undefined}
+                      onClick={
+                        header.column.getCanSort()
+                          ? header.column.getToggleSortingHandler()
+                          : undefined
+                      }
                       className={clsx(
                         'px-4 py-3 text-left text-xs font-medium uppercase tracking-wide',
-                        header.column.getCanSort() && 'cursor-pointer select-none hover:bg-[var(--bg-hover)]'
+                        header.column.getCanSort() &&
+                          'cursor-pointer select-none hover:bg-[var(--bg-hover)]'
                       )}
                       style={{ color: 'var(--text-muted)' }}
                     >
@@ -219,7 +240,10 @@ export function Inventory() {
         {selectedItem && (
           <div className="space-y-5">
             {/* Product info */}
-            <div className="flex items-center gap-3 p-3 rounded-lg" style={{ border: '1px solid var(--border)' }}>
+            <div
+              className="flex items-center gap-3 p-3 rounded-lg"
+              style={{ border: '1px solid var(--border)' }}
+            >
               <div
                 className="w-10 h-10 flex items-center justify-center rounded-lg"
                 style={{ background: 'var(--bg-subtle)', border: '1px solid var(--border-subtle)' }}
@@ -236,31 +260,55 @@ export function Inventory() {
 
             {/* Stock levels */}
             <div className="grid grid-cols-3 gap-3">
-              <div className="p-3 rounded-lg text-center" style={{ border: '1px solid var(--border)' }}>
+              <div
+                className="p-3 rounded-lg text-center"
+                style={{ border: '1px solid var(--border)' }}
+              >
                 <p className="text-2xl font-mono font-semibold">{selectedItem.on_hand}</p>
-                <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>On Hand</p>
+                <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                  On Hand
+                </p>
               </div>
-              <div className="p-3 rounded-lg text-center" style={{ border: '1px solid var(--border)' }}>
+              <div
+                className="p-3 rounded-lg text-center"
+                style={{ border: '1px solid var(--border)' }}
+              >
                 <p className="text-2xl font-mono font-semibold">{selectedItem.reserved}</p>
-                <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>Reserved</p>
+                <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                  Reserved
+                </p>
               </div>
-              <div className="p-3 rounded-lg text-center" style={{ border: '1px solid var(--border)' }}>
-                <p className={clsx(
-                  'text-2xl font-mono font-semibold',
-                  selectedItem.available <= 0 && 'text-red-500',
-                  selectedItem.available > 0 && selectedItem.available <= 5 && 'text-amber-500'
-                )}>
+              <div
+                className="p-3 rounded-lg text-center"
+                style={{ border: '1px solid var(--border)' }}
+              >
+                <p
+                  className={clsx(
+                    'text-2xl font-mono font-semibold',
+                    selectedItem.available <= 0 && 'text-red-500',
+                    selectedItem.available > 0 && selectedItem.available <= 5 && 'text-amber-500'
+                  )}
+                >
                   {selectedItem.available}
                 </p>
-                <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>Available</p>
+                <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                  Available
+                </p>
               </div>
             </div>
 
             {/* Adjust form */}
-            <form onSubmit={handleAdjust} className="space-y-4 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+            <form
+              onSubmit={handleAdjust}
+              className="space-y-4 pt-4 border-t"
+              style={{ borderColor: 'var(--border)' }}
+            >
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+                  <label
+                    className="block text-xs font-medium uppercase tracking-wide mb-2"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
                     Quantity (+/-)
                   </label>
                   <input
@@ -278,7 +326,10 @@ export function Inventory() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+                  <label
+                    className="block text-xs font-medium uppercase tracking-wide mb-2"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
                     Reason
                   </label>
                   <select
@@ -292,7 +343,9 @@ export function Inventory() {
                     }}
                   >
                     {ADJUST_REASONS.map((r) => (
-                      <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>
+                      <option key={r} value={r}>
+                        {r.charAt(0).toUpperCase() + r.slice(1)}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -300,7 +353,9 @@ export function Inventory() {
 
               {/* Quick actions */}
               <div className="flex items-center gap-2">
-                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Quick:</span>
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  Quick:
+                </span>
                 {[10, 25, 50, 100].map((n) => (
                   <button
                     key={n}

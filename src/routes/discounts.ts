@@ -79,10 +79,7 @@ export async function validateDiscount(
   }
 }
 
-export function calculateDiscount(
-  discount: Discount,
-  subtotalCents: number
-): number {
+export function calculateDiscount(discount: Discount, subtotalCents: number): number {
   switch (discount.type) {
     case 'percentage': {
       let amount = Math.floor((subtotalCents * discount.value) / 100);
@@ -127,7 +124,7 @@ async function syncDiscountToStripe(
   try {
     // Create or update Stripe coupon
     let couponId = discount.stripe_coupon_id;
-    
+
     const couponParams: Stripe.CouponCreateParams = {
       duration: 'once',
       metadata: { merchant_discount_id: discount.id },
@@ -169,7 +166,7 @@ async function syncDiscountToStripe(
     // Create or update promotion code if discount has a code
     let promotionCodeId = discount.stripe_promotion_code_id;
     const isActive = discount.status !== 'inactive';
-    
+
     if (discount.code && isActive) {
       // Discount has code and is active - create or recreate promotion code
       // (Stripe doesn't support updating promotion codes, so we deactivate old and create new)
@@ -180,7 +177,7 @@ async function syncDiscountToStripe(
           // Promotion code might not exist, continue
         }
       }
-      
+
       // Create new active promotion code
       const promotionCode = await stripe.promotionCodes.create({
         coupon: couponId,
@@ -207,10 +204,10 @@ async function syncDiscountToStripe(
     // Merchant is source of truth, Stripe is optional
     const errorMessage = err.message || 'Unknown error';
     console.error('Failed to sync discount to Stripe:', errorMessage);
-    return { 
-      couponId: discount.stripe_coupon_id, 
+    return {
+      couponId: discount.stripe_coupon_id,
       promotionCodeId: discount.stripe_promotion_code_id,
-      syncError: errorMessage 
+      syncError: errorMessage,
     };
   }
 }
@@ -254,10 +251,10 @@ discountRoutes.get('/:id', adminOnly, async (c) => {
   const { store } = c.get('auth');
   const db = getDb(c.env);
 
-  const [discount] = await db.query<any>(
-    `SELECT * FROM discounts WHERE id = ? AND store_id = ?`,
-    [id, store.id]
-  );
+  const [discount] = await db.query<any>(`SELECT * FROM discounts WHERE id = ? AND store_id = ?`, [
+    id,
+    store.id,
+  ]);
 
   if (!discount) throw ApiError.notFound('Discount not found');
 
@@ -328,7 +325,7 @@ discountRoutes.post('/', adminOnly, async (c) => {
   // Sync to Stripe if connected
   let stripeCouponId = null;
   let stripePromotionCodeId = null;
-  
+
   if (store.stripe_secret_key) {
     const stripeSync = await syncDiscountToStripe(store.stripe_secret_key, {
       id,
@@ -343,7 +340,7 @@ discountRoutes.post('/', adminOnly, async (c) => {
     });
     stripeCouponId = stripeSync.couponId;
     stripePromotionCodeId = stripeSync.promotionCodeId;
-    
+
     // Log warning if Stripe sync failed but don't fail discount creation
     if (stripeSync.syncError) {
       console.warn(`Discount ${id} created but Stripe sync failed:`, stripeSync.syncError);
@@ -372,10 +369,7 @@ discountRoutes.post('/', adminOnly, async (c) => {
     ]
   );
 
-  const [discount] = await db.query<any>(
-    `SELECT * FROM discounts WHERE id = ?`,
-    [id]
-  );
+  const [discount] = await db.query<any>(`SELECT * FROM discounts WHERE id = ?`, [id]);
 
   return c.json(
     {
@@ -401,15 +395,25 @@ discountRoutes.post('/', adminOnly, async (c) => {
 discountRoutes.patch('/:id', adminOnly, async (c) => {
   const id = c.req.param('id');
   const body = await c.req.json();
-  const { status, code, value, min_purchase_cents, max_discount_cents, starts_at, expires_at, usage_limit, usage_limit_per_customer } = body;
+  const {
+    status,
+    code,
+    value,
+    min_purchase_cents,
+    max_discount_cents,
+    starts_at,
+    expires_at,
+    usage_limit,
+    usage_limit_per_customer,
+  } = body;
 
   const { store } = c.get('auth');
   const db = getDb(c.env);
 
-  const [existing] = await db.query<any>(
-    `SELECT * FROM discounts WHERE id = ? AND store_id = ?`,
-    [id, store.id]
-  );
+  const [existing] = await db.query<any>(`SELECT * FROM discounts WHERE id = ? AND store_id = ?`, [
+    id,
+    store.id,
+  ]);
   if (!existing) throw ApiError.notFound('Discount not found');
 
   const updates: string[] = [];
@@ -487,16 +491,16 @@ discountRoutes.patch('/:id', adminOnly, async (c) => {
     );
   }
 
-  const [discount] = await db.query<any>(
-    `SELECT * FROM discounts WHERE id = ? AND store_id = ?`,
-    [id, store.id]
-  );
+  const [discount] = await db.query<any>(`SELECT * FROM discounts WHERE id = ? AND store_id = ?`, [
+    id,
+    store.id,
+  ]);
 
   // Sync to Stripe if any Stripe-relevant fields changed
   // (code, value, type, max_discount_cents, expires_at, status)
   const stripeRelevantFields = ['code', 'value', 'max_discount_cents', 'expires_at', 'status'];
-  const shouldSyncStripe = updates.some(update => 
-    stripeRelevantFields.some(field => update.includes(field))
+  const shouldSyncStripe = updates.some((update) =>
+    stripeRelevantFields.some((field) => update.includes(field))
   );
 
   if (shouldSyncStripe && store.stripe_secret_key) {
@@ -511,15 +515,17 @@ discountRoutes.patch('/:id', adminOnly, async (c) => {
       stripe_coupon_id: discount.stripe_coupon_id,
       stripe_promotion_code_id: discount.stripe_promotion_code_id,
     });
-    
+
     // Log warning if Stripe sync failed but don't fail discount update
     if (stripeSync.syncError) {
       console.warn(`Discount ${discount.id} updated but Stripe sync failed:`, stripeSync.syncError);
     }
-    
+
     // Update Stripe IDs if they changed
-    if (stripeSync.couponId !== discount.stripe_coupon_id || 
-        stripeSync.promotionCodeId !== discount.stripe_promotion_code_id) {
+    if (
+      stripeSync.couponId !== discount.stripe_coupon_id ||
+      stripeSync.promotionCodeId !== discount.stripe_promotion_code_id
+    ) {
       await db.run(
         `UPDATE discounts SET stripe_coupon_id = ?, stripe_promotion_code_id = ? WHERE id = ?`,
         [stripeSync.couponId, stripeSync.promotionCodeId, discount.id]
@@ -553,10 +559,10 @@ discountRoutes.delete('/:id', adminOnly, async (c) => {
   const { store } = c.get('auth');
   const db = getDb(c.env);
 
-  const [discount] = await db.query<any>(
-    `SELECT * FROM discounts WHERE id = ? AND store_id = ?`,
-    [id, store.id]
-  );
+  const [discount] = await db.query<any>(`SELECT * FROM discounts WHERE id = ? AND store_id = ?`, [
+    id,
+    store.id,
+  ]);
   if (!discount) throw ApiError.notFound('Discount not found');
 
   await db.run(
@@ -568,4 +574,3 @@ discountRoutes.delete('/:id', adminOnly, async (c) => {
 });
 
 export { discountRoutes as discounts };
-

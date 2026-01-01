@@ -62,10 +62,10 @@ customers.get('/:id', async (c) => {
   const db = getDb(c.env);
   const customerId = c.req.param('id');
 
-  const [customer] = await db.query<any>(
-    `SELECT * FROM customers WHERE id = ? AND store_id = ?`,
-    [customerId, store.id]
-  );
+  const [customer] = await db.query<any>(`SELECT * FROM customers WHERE id = ? AND store_id = ?`, [
+    customerId,
+    store.id,
+  ]);
 
   if (!customer) throw ApiError.notFound('Customer');
 
@@ -93,10 +93,10 @@ customers.get('/:id/orders', async (c) => {
   const cursor = c.req.query('cursor');
 
   // Verify customer exists and belongs to store
-  const [customer] = await db.query<any>(
-    `SELECT id FROM customers WHERE id = ? AND store_id = ?`,
-    [customerId, store.id]
-  );
+  const [customer] = await db.query<any>(`SELECT id FROM customers WHERE id = ? AND store_id = ?`, [
+    customerId,
+    store.id,
+  ]);
 
   if (!customer) throw ApiError.notFound('Customer');
 
@@ -117,15 +117,15 @@ customers.get('/:id/orders', async (c) => {
 
   // Batch fetch all order items (avoids N+1 query)
   const orderIds = items.map((o: any) => o.id);
-  let itemsByOrder: Record<string, any[]> = {};
-  
+  const itemsByOrder: Record<string, any[]> = {};
+
   if (orderIds.length > 0) {
     const placeholders = orderIds.map(() => '?').join(',');
     const allItems = await db.query<any>(
       `SELECT * FROM order_items WHERE order_id IN (${placeholders})`,
       orderIds
     );
-    
+
     for (const item of allItems) {
       if (!itemsByOrder[item.order_id]) {
         itemsByOrder[item.order_id] = [];
@@ -157,10 +157,10 @@ customers.patch('/:id', async (c) => {
   const customerId = c.req.param('id');
   const body = await c.req.json();
 
-  const [customer] = await db.query<any>(
-    `SELECT * FROM customers WHERE id = ? AND store_id = ?`,
-    [customerId, store.id]
-  );
+  const [customer] = await db.query<any>(`SELECT * FROM customers WHERE id = ? AND store_id = ?`, [
+    customerId,
+    store.id,
+  ]);
 
   if (!customer) throw ApiError.notFound('Customer');
 
@@ -193,15 +193,9 @@ customers.patch('/:id', async (c) => {
   params.push(now());
   params.push(customerId);
 
-  await db.run(
-    `UPDATE customers SET ${updates.join(', ')} WHERE id = ?`,
-    params
-  );
+  await db.run(`UPDATE customers SET ${updates.join(', ')} WHERE id = ?`, params);
 
-  const [updated] = await db.query<any>(
-    `SELECT * FROM customers WHERE id = ?`,
-    [customerId]
-  );
+  const [updated] = await db.query<any>(`SELECT * FROM customers WHERE id = ?`, [customerId]);
 
   return c.json(formatCustomer(updated));
 });
@@ -215,10 +209,10 @@ customers.post('/:id/addresses', async (c) => {
   const customerId = c.req.param('id');
   const body = await c.req.json();
 
-  const [customer] = await db.query<any>(
-    `SELECT id FROM customers WHERE id = ? AND store_id = ?`,
-    [customerId, store.id]
-  );
+  const [customer] = await db.query<any>(`SELECT id FROM customers WHERE id = ? AND store_id = ?`, [
+    customerId,
+    store.id,
+  ]);
 
   if (!customer) throw ApiError.notFound('Customer');
 
@@ -231,10 +225,9 @@ customers.post('/:id/addresses', async (c) => {
 
   // If setting as default, unset other defaults
   if (body.is_default) {
-    await db.run(
-      `UPDATE customer_addresses SET is_default = 0 WHERE customer_id = ?`,
-      [customerId]
-    );
+    await db.run(`UPDATE customer_addresses SET is_default = 0 WHERE customer_id = ?`, [
+      customerId,
+    ]);
   }
 
   // Check if first address (auto-default)
@@ -248,18 +241,23 @@ customers.post('/:id/addresses', async (c) => {
     `INSERT INTO customer_addresses (id, customer_id, label, is_default, name, company, line1, line2, city, state, postal_code, country, phone)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
-      id, customerId, body.label || null, isDefault,
-      body.name || null, body.company || null,
-      body.line1, body.line2 || null,
-      body.city, body.state || null, body.postal_code, body.country || 'US',
-      body.phone || null
+      id,
+      customerId,
+      body.label || null,
+      isDefault,
+      body.name || null,
+      body.company || null,
+      body.line1,
+      body.line2 || null,
+      body.city,
+      body.state || null,
+      body.postal_code,
+      body.country || 'US',
+      body.phone || null,
     ]
   );
 
-  const [address] = await db.query<any>(
-    `SELECT * FROM customer_addresses WHERE id = ?`,
-    [id]
-  );
+  const [address] = await db.query<any>(`SELECT * FROM customer_addresses WHERE id = ?`, [id]);
 
   return c.json(formatAddress(address), 201);
 });
@@ -274,10 +272,10 @@ customers.delete('/:id/addresses/:addressId', async (c) => {
   const addressId = c.req.param('addressId');
 
   // Verify customer belongs to store
-  const [customer] = await db.query<any>(
-    `SELECT id FROM customers WHERE id = ? AND store_id = ?`,
-    [customerId, store.id]
-  );
+  const [customer] = await db.query<any>(`SELECT id FROM customers WHERE id = ? AND store_id = ?`, [
+    customerId,
+    store.id,
+  ]);
 
   if (!customer) throw ApiError.notFound('Customer');
 
@@ -365,12 +363,13 @@ function formatOrder(o: any) {
       qty: i.qty,
       unit_price_cents: i.unit_price_cents,
     })),
-    tracking: o.tracking_number ? {
-      number: o.tracking_number,
-      url: o.tracking_url,
-      shipped_at: o.shipped_at,
-    } : null,
+    tracking: o.tracking_number
+      ? {
+          number: o.tracking_number,
+          url: o.tracking_url,
+          shipped_at: o.shipped_at,
+        }
+      : null,
     created_at: o.created_at,
   };
 }
-

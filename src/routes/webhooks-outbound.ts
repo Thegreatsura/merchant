@@ -23,7 +23,7 @@ const VALID_EVENTS = [
   'order.refunded',
   'inventory.low',
   'order.*', // Wildcard for all order events
-  '*',       // Wildcard for all events
+  '*', // Wildcard for all events
 ] as const;
 
 // GET /v1/webhooks
@@ -55,10 +55,10 @@ webhooksRoutes.get('/:id', async (c) => {
   const db = getDb(c.env);
   const id = c.req.param('id');
 
-  const [webhook] = await db.query<any>(
-    `SELECT * FROM webhooks WHERE id = ? AND store_id = ?`,
-    [id, store.id]
-  );
+  const [webhook] = await db.query<any>(`SELECT * FROM webhooks WHERE id = ? AND store_id = ?`, [
+    id,
+    store.id,
+  ]);
 
   if (!webhook) throw ApiError.notFound('Webhook not found');
 
@@ -155,10 +155,10 @@ webhooksRoutes.patch('/:id', async (c) => {
   const { store } = c.get('auth');
   const db = getDb(c.env);
 
-  const [existing] = await db.query<any>(
-    `SELECT * FROM webhooks WHERE id = ? AND store_id = ?`,
-    [id, store.id]
-  );
+  const [existing] = await db.query<any>(`SELECT * FROM webhooks WHERE id = ? AND store_id = ?`, [
+    id,
+    store.id,
+  ]);
 
   if (!existing) throw ApiError.notFound('Webhook not found');
 
@@ -222,10 +222,10 @@ webhooksRoutes.delete('/:id', async (c) => {
   const { store } = c.get('auth');
   const db = getDb(c.env);
 
-  const [existing] = await db.query<any>(
-    `SELECT * FROM webhooks WHERE id = ? AND store_id = ?`,
-    [id, store.id]
-  );
+  const [existing] = await db.query<any>(`SELECT * FROM webhooks WHERE id = ? AND store_id = ?`, [
+    id,
+    store.id,
+  ]);
 
   if (!existing) throw ApiError.notFound('Webhook not found');
 
@@ -242,10 +242,10 @@ webhooksRoutes.post('/:id/rotate-secret', async (c) => {
   const { store } = c.get('auth');
   const db = getDb(c.env);
 
-  const [existing] = await db.query<any>(
-    `SELECT * FROM webhooks WHERE id = ? AND store_id = ?`,
-    [id, store.id]
-  );
+  const [existing] = await db.query<any>(`SELECT * FROM webhooks WHERE id = ? AND store_id = ?`, [
+    id,
+    store.id,
+  ]);
 
   if (!existing) throw ApiError.notFound('Webhook not found');
 
@@ -264,10 +264,10 @@ webhooksRoutes.get('/:id/deliveries/:deliveryId', async (c) => {
   const db = getDb(c.env);
 
   // Verify webhook belongs to store
-  const [webhook] = await db.query<any>(
-    `SELECT id FROM webhooks WHERE id = ? AND store_id = ?`,
-    [webhookId, store.id]
-  );
+  const [webhook] = await db.query<any>(`SELECT id FROM webhooks WHERE id = ? AND store_id = ?`, [
+    webhookId,
+    store.id,
+  ]);
 
   if (!webhook) throw ApiError.notFound('Webhook not found');
 
@@ -298,10 +298,10 @@ webhooksRoutes.post('/:id/deliveries/:deliveryId/retry', async (c) => {
   const { store } = c.get('auth');
   const db = getDb(c.env);
 
-  const [webhook] = await db.query<any>(
-    `SELECT * FROM webhooks WHERE id = ? AND store_id = ?`,
-    [webhookId, store.id]
-  );
+  const [webhook] = await db.query<any>(`SELECT * FROM webhooks WHERE id = ? AND store_id = ?`, [
+    webhookId,
+    store.id,
+  ]);
 
   if (!webhook) throw ApiError.notFound('Webhook not found');
 
@@ -313,18 +313,14 @@ webhooksRoutes.post('/:id/deliveries/:deliveryId/retry', async (c) => {
   if (!delivery) throw ApiError.notFound('Delivery not found');
 
   // Reset status and actually dispatch the retry
-  await db.run(
-    `UPDATE webhook_deliveries SET status = 'pending', attempts = 0 WHERE id = ?`,
-    [deliveryId]
-  );
+  await db.run(`UPDATE webhook_deliveries SET status = 'pending', attempts = 0 WHERE id = ?`, [
+    deliveryId,
+  ]);
 
   // Actually trigger the retry delivery
-  c.executionCtx.waitUntil(
-    retryDelivery(c.env, webhook, delivery)
-  );
+  c.executionCtx.waitUntil(retryDelivery(c.env, webhook, delivery));
 
   return c.json({ status: 'pending', message: 'Delivery retry triggered' });
 });
 
 export { webhooksRoutes };
-

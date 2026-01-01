@@ -19,7 +19,7 @@ export function saveCart(items) {
 
 export function addToCart(variant, product) {
   const cart = getCart();
-  const existing = cart.find(item => item.sku === variant.sku);
+  const existing = cart.find((item) => item.sku === variant.sku);
 
   if (existing) {
     existing.qty += 1;
@@ -39,11 +39,11 @@ export function addToCart(variant, product) {
 
 export function updateQuantity(sku, qty) {
   let cart = getCart();
-  
+
   if (qty <= 0) {
-    cart = cart.filter(item => item.sku !== sku);
+    cart = cart.filter((item) => item.sku !== sku);
   } else {
-    const item = cart.find(item => item.sku === sku);
+    const item = cart.find((item) => item.sku === sku);
     if (item) item.qty = qty;
   }
 
@@ -61,7 +61,7 @@ export function clearCart() {
 }
 
 export function getCartTotal() {
-  return getCart().reduce((sum, item) => sum + (item.price_cents * item.qty), 0);
+  return getCart().reduce((sum, item) => sum + item.price_cents * item.qty, 0);
 }
 
 export function getCartCount() {
@@ -81,4 +81,3 @@ export function updateCartBadge() {
 if (typeof window !== 'undefined') {
   document.addEventListener('DOMContentLoaded', updateCartBadge);
 }
-

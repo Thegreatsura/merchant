@@ -45,7 +45,9 @@ webhooks.post('/stripe', async (c) => {
   }
 
   // Dedupe
-  const [existing] = await db.query<any>(`SELECT id FROM events WHERE stripe_event_id = ?`, [event.id]);
+  const [existing] = await db.query<any>(`SELECT id FROM events WHERE stripe_event_id = ?`, [
+    event.id,
+  ]);
   if (existing) return c.json({ ok: true });
 
   // Handle checkout.session.completed
@@ -87,15 +89,20 @@ webhooks.post('/stripe', async (c) => {
 
         // Calculate subtotal from cart items (before discounts)
         // session.amount_subtotal includes discounts as negative line items, so we calculate from original items
-        const subtotalCents = items.reduce((sum, item) => sum + item.unit_price_cents * item.qty, 0);
+        const subtotalCents = items.reduce(
+          (sum, item) => sum + item.unit_price_cents * item.qty,
+          0
+        );
 
         // Generate order number (timestamp-based to avoid race conditions)
         const orderNumber = generateOrderNumber();
 
         // Extract customer details from full Stripe session
         const customerEmail = cart.customer_email;
-        const shippingName = session.shipping_details?.name || session.customer_details?.name || null;
-        const shippingPhone = session.shipping_details?.phone || session.customer_details?.phone || null;
+        const shippingName =
+          session.shipping_details?.name || session.customer_details?.name || null;
+        const shippingPhone =
+          session.shipping_details?.phone || session.customer_details?.phone || null;
         const shippingAddress = session.shipping_details?.address || null;
 
         // Upsert customer (create or update on email match)
@@ -125,7 +132,15 @@ webhooks.post('/stripe', async (c) => {
           await db.run(
             `INSERT INTO customers (id, store_id, email, name, phone, order_count, total_spent_cents, last_order_at)
              VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
-            [customerId, store.id, customerEmail, shippingName, shippingPhone, session.amount_total ?? 0, now()]
+            [
+              customerId,
+              store.id,
+              customerEmail,
+              shippingName,
+              shippingPhone,
+              session.amount_total ?? 0,
+              now(),
+            ]
           );
         }
 
@@ -148,11 +163,17 @@ webhooks.post('/stripe', async (c) => {
               `INSERT INTO customer_addresses (id, customer_id, is_default, name, line1, line2, city, state, postal_code, country, phone)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
               [
-                uuid(), customerId, isDefault, shippingName,
-                shippingAddress.line1, shippingAddress.line2 || null,
-                shippingAddress.city, shippingAddress.state,
-                shippingAddress.postal_code, shippingAddress.country,
-                shippingPhone
+                uuid(),
+                customerId,
+                isDefault,
+                shippingName,
+                shippingAddress.line1,
+                shippingAddress.line2 || null,
+                shippingAddress.city,
+                shippingAddress.state,
+                shippingAddress.postal_code,
+                shippingAddress.country,
+                shippingPhone,
               ]
             );
           }
@@ -168,13 +189,24 @@ webhooks.post('/stripe', async (c) => {
            stripe_checkout_session_id, stripe_payment_intent_id)
            VALUES (?, ?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
-            orderId, store.id, customerId, orderNumber, customerEmail,
-            shippingName, shippingPhone,
+            orderId,
+            store.id,
+            customerId,
+            orderNumber,
+            customerEmail,
+            shippingName,
+            shippingPhone,
             shippingAddress ? JSON.stringify(shippingAddress) : null,
-            subtotalCents, session.total_details?.amount_tax ?? 0,
-            session.total_details?.amount_shipping ?? 0, session.amount_total ?? 0, cart.currency,
-            discountCode, discountId, discountAmountCents,
-            session.id, session.payment_intent
+            subtotalCents,
+            session.total_details?.amount_tax ?? 0,
+            session.total_details?.amount_shipping ?? 0,
+            session.amount_total ?? 0,
+            cart.currency,
+            discountCode,
+            discountId,
+            discountAmountCents,
+            session.id,
+            session.payment_intent,
           ]
         );
 
@@ -187,7 +219,7 @@ webhooks.post('/stripe', async (c) => {
             `SELECT id FROM discount_usage WHERE order_id = ? AND discount_id = ?`,
             [orderId, discountId]
           );
-          
+
           if (!existing) {
             // Enforce per-customer limit atomically using conditional INSERT
             // This prevents race conditions from concurrent checkouts
@@ -197,7 +229,7 @@ webhooks.post('/stripe', async (c) => {
               // This prevents concurrent checkouts from bypassing the per-customer limit
               const usageId = uuid();
               const customerEmailLower = cart.customer_email.toLowerCase();
-              
+
               // For SQLite/D1: Use INSERT with SELECT and WHERE clause to atomically check limit
               const result = await db.run(
                 `INSERT INTO discount_usage (id, discount_id, order_id, customer_email, discount_amount_cents)
@@ -207,11 +239,17 @@ webhooks.post('/stripe', async (c) => {
                    WHERE discount_id = ? AND customer_email = ?
                  ) < ?`,
                 [
-                  usageId, discountId, orderId, customerEmailLower, discountAmountCents,
-                  discountId, customerEmailLower, discount.usage_limit_per_customer
+                  usageId,
+                  discountId,
+                  orderId,
+                  customerEmailLower,
+                  discountAmountCents,
+                  discountId,
+                  customerEmailLower,
+                  discount.usage_limit_per_customer,
                 ]
               );
-              
+
               // If insert failed (changes === 0), the limit was exceeded
               // This can happen with concurrent checkouts - the order is already created and paid,
               // so we log this but don't fail the webhook
@@ -220,7 +258,7 @@ webhooks.post('/stripe', async (c) => {
                 // but can occur with concurrent checkouts. Log for monitoring.
                 console.warn(
                   `Discount usage limit exceeded for customer ${customerEmailLower} and discount ${discountId}, ` +
-                  `but order ${orderId} already created (payment succeeded). This may indicate a race condition.`
+                    `but order ${orderId} already created (payment succeeded). This may indicate a race condition.`
                 );
               }
             } else {
@@ -228,11 +266,17 @@ webhooks.post('/stripe', async (c) => {
               await db.run(
                 `INSERT INTO discount_usage (id, discount_id, order_id, customer_email, discount_amount_cents)
                  VALUES (?, ?, ?, ?, ?)`,
-                [uuid(), discountId, orderId, cart.customer_email.toLowerCase(), discountAmountCents]
+                [
+                  uuid(),
+                  discountId,
+                  orderId,
+                  cart.customer_email.toLowerCase(),
+                  discountAmountCents,
+                ]
               );
             }
           }
-          // If already exists, silently skip 
+          // If already exists, silently skip
         }
 
         // Create order items & update inventory
@@ -255,10 +299,15 @@ webhooks.post('/stripe', async (c) => {
 
         // Update cart status to prevent cron from treating it as abandoned checkout
         // This prevents the abandoned checkout cleanup from incorrectly decrementing discount usage_count
-        await db.run(`UPDATE carts SET status = 'expired', updated_at = ? WHERE id = ?`, [now(), cartId]);
+        await db.run(`UPDATE carts SET status = 'expired', updated_at = ? WHERE id = ?`, [
+          now(),
+          cartId,
+        ]);
 
         // Dispatch order.created webhook
-        const orderItems = await db.query<any>(`SELECT * FROM order_items WHERE order_id = ?`, [orderId]);
+        const orderItems = await db.query<any>(`SELECT * FROM order_items WHERE order_id = ?`, [
+          orderId,
+        ]);
         await dispatchWebhooks(c.env, c.executionCtx, store.id, 'order.created', {
           order: {
             id: orderId,

@@ -9,7 +9,20 @@ import {
   createColumnHelper,
   SortingState,
 } from '@tanstack/react-table';
-import { Search, ChevronUp, ChevronDown, ChevronsUpDown, Loader2, RefreshCw, Plus, ArrowLeft, ImageIcon, Upload, X, Pencil } from 'lucide-react';
+import {
+  Search,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
+  Loader2,
+  RefreshCw,
+  Plus,
+  ArrowLeft,
+  ImageIcon,
+  Upload,
+  X,
+  Pencil,
+} from 'lucide-react';
 import { api, Product, Variant } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { Modal } from '../components/Modal';
@@ -22,13 +35,13 @@ export function Products() {
   const [sorting, setSorting] = useState<SortingState>([{ id: 'created_at', desc: true }]);
   const [globalFilter, setGlobalFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
-  
+
   // Modals
   const [createModal, setCreateModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [variantMode, setVariantMode] = useState<'add' | 'edit' | null>(null);
   const [editingVariant, setEditingVariant] = useState<Variant | null>(null);
-  
+
   // Form state
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
@@ -60,8 +73,13 @@ export function Products() {
 
   // Create variant mutation
   const createVariantMutation = useMutation({
-    mutationFn: ({ productId, data }: { productId: string; data: Parameters<typeof api.createVariant>[1] }) =>
-      api.createVariant(productId, data),
+    mutationFn: ({
+      productId,
+      data,
+    }: {
+      productId: string;
+      data: Parameters<typeof api.createVariant>[1];
+    }) => api.createVariant(productId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
       refreshSelectedProduct();
@@ -82,8 +100,15 @@ export function Products() {
 
   // Update variant mutation
   const updateVariantMutation = useMutation({
-    mutationFn: ({ productId, variantId, data }: { productId: string; variantId: string; data: Parameters<typeof api.updateVariant>[2] }) =>
-      api.updateVariant(productId, variantId, data),
+    mutationFn: ({
+      productId,
+      variantId,
+      data,
+    }: {
+      productId: string;
+      variantId: string;
+      data: Parameters<typeof api.updateVariant>[2];
+    }) => api.updateVariant(productId, variantId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
       refreshSelectedProduct();
@@ -164,27 +189,28 @@ export function Products() {
     }
   };
 
-  const columns = useMemo(() => [
-    columnHelper.accessor('title', {
-      header: 'Product',
-      cell: (info) => <span className="font-mono text-sm">{info.getValue()}</span>,
-    }),
-    columnHelper.accessor('description', {
-      header: 'Description',
-      cell: (info) => (
-        <span className="font-mono text-sm">{info.getValue() || '-'}</span>
-      ),
-    }),
-    columnHelper.accessor((row) => row.variants.length, {
-      id: 'variants',
-      header: 'Variants',
-      cell: (info) => <span className="font-mono text-sm">{info.getValue()}</span>,
-    }),
-    columnHelper.accessor('status', {
-      header: 'Status',
-      cell: (info) => <StatusBadge status={info.getValue()} />,
-    }),
-  ], []);
+  const columns = useMemo(
+    () => [
+      columnHelper.accessor('title', {
+        header: 'Product',
+        cell: (info) => <span className="font-mono text-sm">{info.getValue()}</span>,
+      }),
+      columnHelper.accessor('description', {
+        header: 'Description',
+        cell: (info) => <span className="font-mono text-sm">{info.getValue() || '-'}</span>,
+      }),
+      columnHelper.accessor((row) => row.variants.length, {
+        id: 'variants',
+        header: 'Variants',
+        cell: (info) => <span className="font-mono text-sm">{info.getValue()}</span>,
+      }),
+      columnHelper.accessor('status', {
+        header: 'Status',
+        cell: (info) => <StatusBadge status={info.getValue()} />,
+      }),
+    ],
+    []
+  );
 
   const table = useReactTable({
     data: products,
@@ -203,7 +229,9 @@ export function Products() {
     <div>
       {/* Header */}
       <div className="flex items-center justify-between mb-4 h-9">
-        <h1 className="text-lg font-semibold" style={{ color: 'var(--text)' }}>Products</h1>
+        <h1 className="text-lg font-semibold" style={{ color: 'var(--text)' }}>
+          Products
+        </h1>
         <div className="flex items-center gap-2">
           <button
             onClick={() => queryClient.invalidateQueries({ queryKey: ['products'] })}
@@ -214,11 +242,11 @@ export function Products() {
             <RefreshCw size={16} className={isFetching ? 'animate-spin' : ''} />
           </button>
           <button
-             onClick={() => setCreateModal(true)}
-             className="inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded font-semibold transition-colors"
-             style={{ background: 'var(--accent)', color: 'var(--text-inverse)' }}
-           >
-             <Plus size={16} />
+            onClick={() => setCreateModal(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded font-semibold transition-colors"
+            style={{ background: 'var(--accent)', color: 'var(--text-inverse)' }}
+          >
+            <Plus size={16} />
             Add Product
           </button>
         </div>
@@ -230,11 +258,11 @@ export function Products() {
         style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
       >
         {/* Filters */}
-        <div
-          className="flex items-center border-b"
-          style={{ borderColor: 'var(--border)' }}
-        >
-          <div className="flex-1 flex items-center gap-2 px-4 py-3" style={{ color: 'var(--text-muted)' }}>
+        <div className="flex items-center border-b" style={{ borderColor: 'var(--border)' }}>
+          <div
+            className="flex-1 flex items-center gap-2 px-4 py-3"
+            style={{ color: 'var(--text-muted)' }}
+          >
             <Search size={16} className="flex-shrink-0" />
             <input
               type="text"
@@ -277,10 +305,15 @@ export function Products() {
                   {headerGroup.headers.map((header) => (
                     <th
                       key={header.id}
-                      onClick={header.column.getCanSort() ? header.column.getToggleSortingHandler() : undefined}
+                      onClick={
+                        header.column.getCanSort()
+                          ? header.column.getToggleSortingHandler()
+                          : undefined
+                      }
                       className={clsx(
                         'px-4 py-3 text-left text-xs font-medium uppercase tracking-wide',
-                        header.column.getCanSort() && 'cursor-pointer select-none hover:bg-[var(--bg-hover)]'
+                        header.column.getCanSort() &&
+                          'cursor-pointer select-none hover:bg-[var(--bg-hover)]'
                       )}
                       style={{ color: 'var(--text-muted)' }}
                     >
@@ -327,7 +360,10 @@ export function Products() {
       <Modal open={createModal} onClose={() => setCreateModal(false)} title="New Product" size="md">
         <form onSubmit={handleCreateProduct} className="space-y-4">
           <div>
-            <label className="block text-xs font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+            <label
+              className="block text-xs font-medium uppercase tracking-wide mb-2"
+              style={{ color: 'var(--text-secondary)' }}
+            >
               Title
             </label>
             <input
@@ -345,7 +381,10 @@ export function Products() {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+            <label
+              className="block text-xs font-medium uppercase tracking-wide mb-2"
+              style={{ color: 'var(--text-secondary)' }}
+            >
               Description (optional)
             </label>
             <textarea
@@ -361,7 +400,10 @@ export function Products() {
               }}
             />
           </div>
-          <div className="flex gap-2 justify-end pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+          <div
+            className="flex gap-2 justify-end pt-4 border-t"
+            style={{ borderColor: 'var(--border)' }}
+          >
             <button
               type="button"
               onClick={() => setCreateModal(false)}
@@ -400,7 +442,10 @@ export function Products() {
             <div className="p-3 rounded-lg space-y-3" style={{ border: '1px solid var(--border)' }}>
               <div className="flex items-center justify-between gap-3">
                 <div className="flex-1">
-                  <label className="block text-xs font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+                  <label
+                    className="block text-xs font-medium uppercase tracking-wide mb-2"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
                     Title
                   </label>
                   <input
@@ -423,7 +468,10 @@ export function Products() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+                  <label
+                    className="block text-xs font-medium uppercase tracking-wide mb-2"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
                     Status
                   </label>
                   <select
@@ -448,7 +496,10 @@ export function Products() {
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+                <label
+                  className="block text-xs font-medium uppercase tracking-wide mb-2"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
                   Description
                 </label>
                 <textarea
@@ -476,7 +527,10 @@ export function Products() {
             {/* Variants */}
             <div className="p-3 rounded-lg" style={{ border: '1px solid var(--border)' }}>
               <div className="flex items-center justify-between mb-3">
-                <h4 className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
+                <h4
+                  className="text-xs font-medium uppercase tracking-wide"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
                   Variants ({selectedProduct.variants.length})
                 </h4>
                 <button
@@ -489,7 +543,10 @@ export function Products() {
               </div>
 
               {selectedProduct.variants.length === 0 ? (
-                <p className="font-mono text-sm py-6 text-center" style={{ color: 'var(--text-secondary)' }}>
+                <p
+                  className="font-mono text-sm py-6 text-center"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
                   No variants yet. Add one to start selling.
                 </p>
               ) : (
@@ -502,7 +559,10 @@ export function Products() {
             </div>
 
             {/* Meta */}
-            <div className="text-xs font-mono pt-4 border-t" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
+            <div
+              className="text-xs font-mono pt-4 border-t"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
+            >
               Created {new Date(selectedProduct.created_at).toLocaleString()}
             </div>
           </div>
@@ -538,7 +598,10 @@ export function Products() {
             <form onSubmit={handleVariantSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+                  <label
+                    className="block text-xs font-medium uppercase tracking-wide mb-2"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
                     SKU
                   </label>
                   <input
@@ -556,7 +619,10 @@ export function Products() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+                  <label
+                    className="block text-xs font-medium uppercase tracking-wide mb-2"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
                     Price (cents)
                   </label>
                   <input
@@ -577,7 +643,10 @@ export function Products() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+                <label
+                  className="block text-xs font-medium uppercase tracking-wide mb-2"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
                   Title
                 </label>
                 <input
@@ -596,12 +665,20 @@ export function Products() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+                <label
+                  className="block text-xs font-medium uppercase tracking-wide mb-2"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
                   Image (optional)
                 </label>
                 {variantImage ? (
                   <div className="relative inline-block">
-                    <img src={variantImage} alt="" className="w-20 h-20 object-cover rounded-lg" style={{ border: '1px solid var(--border)' }} />
+                    <img
+                      src={variantImage}
+                      alt=""
+                      className="w-20 h-20 object-cover rounded-lg"
+                      style={{ border: '1px solid var(--border)' }}
+                    />
                     <button
                       type="button"
                       onClick={() => setVariantImage(null)}
@@ -623,18 +700,30 @@ export function Products() {
                       disabled={uploadingImage}
                     />
                     {uploadingImage ? (
-                      <Loader2 size={20} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
+                      <Loader2
+                        size={20}
+                        className="animate-spin"
+                        style={{ color: 'var(--text-muted)' }}
+                      />
                     ) : (
                       <>
                         <Upload size={18} style={{ color: 'var(--text-muted)' }} />
-                        <span className="text-xs mt-1 font-mono" style={{ color: 'var(--text-muted)' }}>Click to upload</span>
+                        <span
+                          className="text-xs mt-1 font-mono"
+                          style={{ color: 'var(--text-muted)' }}
+                        >
+                          Click to upload
+                        </span>
                       </>
                     )}
                   </label>
                 )}
               </div>
 
-              <div className="flex gap-2 justify-end pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+              <div
+                className="flex gap-2 justify-end pt-4 border-t"
+                style={{ borderColor: 'var(--border)' }}
+              >
                 <button
                   type="button"
                   onClick={() => {
@@ -653,7 +742,13 @@ export function Products() {
                   className="px-4 py-2 text-sm font-semibold rounded-lg disabled:opacity-50"
                   style={{ background: 'var(--accent)', color: 'white' }}
                 >
-                  {isPending ? (variantMode === 'edit' ? 'Saving...' : 'Adding...') : (variantMode === 'edit' ? 'Save' : 'Add')}
+                  {isPending
+                    ? variantMode === 'edit'
+                      ? 'Saving...'
+                      : 'Adding...'
+                    : variantMode === 'edit'
+                      ? 'Save'
+                      : 'Add'}
                 </button>
               </div>
             </form>
@@ -688,7 +783,9 @@ function VariantCard({ variant, onEdit }: { variant: Variant; onEdit: () => void
       )}
       <div className="flex-1 min-w-0">
         <p className="font-mono text-sm">{variant.title}</p>
-        <p className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>{variant.sku}</p>
+        <p className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
+          {variant.sku}
+        </p>
       </div>
       <p className="font-mono text-sm">${(variant.price_cents / 100).toFixed(2)}</p>
       <Pencil size={14} style={{ color: 'var(--text-muted)' }} />

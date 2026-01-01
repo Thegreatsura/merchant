@@ -22,10 +22,10 @@ checkout.get('/:cartId', async (c) => {
   const { store } = c.get('auth');
   const db = getDb(c.env);
 
-  const [cart] = await db.query<any>(
-    `SELECT * FROM carts WHERE id = ? AND store_id = ?`,
-    [cartId, store.id]
-  );
+  const [cart] = await db.query<any>(`SELECT * FROM carts WHERE id = ? AND store_id = ?`, [
+    cartId,
+    store.id,
+  ]);
   if (!cart) throw ApiError.notFound('Cart not found');
 
   const items = await db.query<any>(`SELECT * FROM cart_items WHERE cart_id = ?`, [cartId]);
@@ -61,10 +61,12 @@ checkout.post('/', async (c) => {
   const id = uuid();
   const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
-  await db.run(
-    `INSERT INTO carts (id, store_id, customer_email, expires_at) VALUES (?, ?, ?, ?)`,
-    [id, store.id, customerEmail, expiresAt]
-  );
+  await db.run(`INSERT INTO carts (id, store_id, customer_email, expires_at) VALUES (?, ?, ?, ?)`, [
+    id,
+    store.id,
+    customerEmail,
+    expiresAt,
+  ]);
 
   return c.json({
     id,
@@ -98,10 +100,10 @@ checkout.post('/:cartId/items', async (c) => {
   const db = getDb(c.env);
 
   // Get cart
-  const [cart] = await db.query<any>(
-    `SELECT * FROM carts WHERE id = ? AND store_id = ?`,
-    [cartId, store.id]
-  );
+  const [cart] = await db.query<any>(`SELECT * FROM carts WHERE id = ? AND store_id = ?`, [
+    cartId,
+    store.id,
+  ]);
   if (!cart) throw ApiError.notFound('Cart not found');
   if (cart.status !== 'open') throw ApiError.conflict('Cart is not open');
 
@@ -112,17 +114,17 @@ checkout.post('/:cartId/items', async (c) => {
       throw ApiError.invalidRequest('Each item needs sku and qty > 0');
     }
 
-    const [variant] = await db.query<any>(
-      `SELECT * FROM variants WHERE store_id = ? AND sku = ?`,
-      [store.id, sku]
-    );
+    const [variant] = await db.query<any>(`SELECT * FROM variants WHERE store_id = ? AND sku = ?`, [
+      store.id,
+      sku,
+    ]);
     if (!variant) throw ApiError.notFound(`SKU not found: ${sku}`);
     if (variant.status !== 'active') throw ApiError.invalidRequest(`SKU not active: ${sku}`);
 
-    const [inv] = await db.query<any>(
-      `SELECT * FROM inventory WHERE store_id = ? AND sku = ?`,
-      [store.id, sku]
-    );
+    const [inv] = await db.query<any>(`SELECT * FROM inventory WHERE store_id = ? AND sku = ?`, [
+      store.id,
+      sku,
+    ]);
     const available = (inv?.on_hand ?? 0) - (inv?.reserved ?? 0);
     if (available < qty) throw ApiError.insufficientInventory(sku);
 
@@ -146,7 +148,10 @@ checkout.post('/:cartId/items', async (c) => {
 
   // Get all cart items from database to ensure accurate totals
   const allCartItems = await db.query<any>(`SELECT * FROM cart_items WHERE cart_id = ?`, [cartId]);
-  const subtotalCents = allCartItems.reduce((sum, item) => sum + item.unit_price_cents * item.qty, 0);
+  const subtotalCents = allCartItems.reduce(
+    (sum, item) => sum + item.unit_price_cents * item.qty,
+    0
+  );
 
   // Recalculate discount if present
   let discountInfo = null;
@@ -160,10 +165,10 @@ checkout.post('/:cartId/items', async (c) => {
       try {
         await validateDiscount(db, discount as Discount, subtotalCents, cart.customer_email);
         discountAmountCents = calculateDiscount(discount as Discount, subtotalCents);
-        await db.run(
-          `UPDATE carts SET discount_amount_cents = ? WHERE id = ?`,
-          [discountAmountCents, cartId]
-        );
+        await db.run(`UPDATE carts SET discount_amount_cents = ? WHERE id = ?`, [
+          discountAmountCents,
+          cartId,
+        ]);
         discountInfo = {
           code: discount.code,
           type: discount.type,
@@ -190,7 +195,7 @@ checkout.post('/:cartId/items', async (c) => {
     status: cart.status,
     currency: cart.currency,
     customer_email: cart.customer_email,
-    items: allCartItems.map(item => ({
+    items: allCartItems.map((item) => ({
       sku: item.sku,
       title: item.title,
       qty: item.qty,
@@ -235,13 +240,13 @@ checkout.post('/:cartId/checkout', async (c) => {
     `UPDATE carts SET status = 'checked_out', updated_at = ? WHERE id = ? AND store_id = ? AND status = 'open'`,
     [now(), cartId, store.id]
   );
-  
+
   if (statusUpdateResult.changes === 0) {
     // Cart not found, wrong store, or already checked out/expired
-    const [cart] = await db.query<any>(
-      `SELECT * FROM carts WHERE id = ? AND store_id = ?`,
-      [cartId, store.id]
-    );
+    const [cart] = await db.query<any>(`SELECT * FROM carts WHERE id = ? AND store_id = ?`, [
+      cartId,
+      store.id,
+    ]);
     if (!cart) throw ApiError.notFound('Cart not found');
     if (cart.status !== 'open') throw ApiError.conflict('Cart is not open');
     // If we get here, cart exists and is open but update failed - this shouldn't happen
@@ -249,10 +254,10 @@ checkout.post('/:cartId/checkout', async (c) => {
   }
 
   // Fetch cart data after successful status update
-  const [cart] = await db.query<any>(
-    `SELECT * FROM carts WHERE id = ? AND store_id = ?`,
-    [cartId, store.id]
-  );
+  const [cart] = await db.query<any>(`SELECT * FROM carts WHERE id = ? AND store_id = ?`, [
+    cartId,
+    store.id,
+  ]);
   if (!cart) throw ApiError.notFound('Cart not found');
 
   const items = await db.query<any>(`SELECT * FROM cart_items WHERE cart_id = ?`, [cartId]);
@@ -273,7 +278,7 @@ checkout.post('/:cartId/checkout', async (c) => {
   let discountAmountCents = 0;
   let discount: Discount | null = null;
   let discountReserved = false;
-  
+
   if (cart.discount_id) {
     const [discountRow] = await db.query<any>(
       `SELECT * FROM discounts WHERE id = ? AND store_id = ?`,
@@ -281,7 +286,7 @@ checkout.post('/:cartId/checkout', async (c) => {
     );
     if (discountRow) {
       discount = discountRow as Discount;
-      
+
       // This ensures validation logic is centralized and doesn't diverge
       try {
         await validateDiscount(db, discount, subtotalCents, cart.customer_email);
@@ -295,10 +300,10 @@ checkout.post('/:cartId/checkout', async (c) => {
         if (err instanceof ApiError) throw err;
         throw ApiError.invalidRequest('Discount is no longer valid');
       }
-      
+
       // Now do atomic reservation (this handles usage_limit)
       const currentTime = now();
-      
+
       // Note: There's a small race condition window between this check and the atomic reservation below.
       // Two concurrent checkouts for the same customer could both pass this check. However, the webhook
       // handler enforces the per-customer limit atomically using a conditional INSERT, preventing
@@ -318,7 +323,7 @@ checkout.post('/:cartId/checkout', async (c) => {
           throw ApiError.invalidRequest('You have already used this discount');
         }
       }
-      
+
       // Atomically increment usage_count only if within global limit
       // This prevents race conditions - if limit is reached, update affects 0 rows
       if (discount.usage_limit !== null) {
@@ -332,7 +337,7 @@ checkout.post('/:cartId/checkout', async (c) => {
              AND usage_count < usage_limit`,
           [currentTime, discount.id, currentTime, currentTime]
         );
-        
+
         if (result.changes === 0) {
           // Usage limit reached or discount became invalid - remove from cart and revert status
           await db.run(
@@ -354,7 +359,7 @@ checkout.post('/:cartId/checkout', async (c) => {
              AND (expires_at IS NULL OR expires_at >= ?)`,
           [currentTime, discount.id, currentTime, currentTime]
         );
-        
+
         if (result.changes === 0) {
           // Discount became invalid - remove from cart and revert status
           await db.run(
@@ -365,7 +370,7 @@ checkout.post('/:cartId/checkout', async (c) => {
           throw ApiError.invalidRequest('Discount is no longer valid');
         }
       }
-      
+
       // Calculate discount amount
       discountAmountCents = calculateDiscount(discount, subtotalCents);
     } else {
@@ -389,7 +394,7 @@ checkout.post('/:cartId/checkout', async (c) => {
 
   // Reserve inventory atomically - track which items were successfully reserved
   const reservedItems: { sku: string; qty: number }[] = [];
-  
+
   const releaseReservedInventory = async () => {
     for (const item of reservedItems) {
       await db.run(
@@ -409,13 +414,13 @@ checkout.post('/:cartId/checkout', async (c) => {
          WHERE store_id = ? AND sku = ? AND on_hand - reserved >= ?`,
         [item.qty, now(), store.id, item.sku, item.qty]
       );
-      
+
       if (result.changes === 0) {
         // Reservation failed - release any previously reserved items
         await releaseReservedInventory();
         throw ApiError.insufficientInventory(item.sku);
       }
-      
+
       // Track successful reservation
       reservedItems.push({ sku: item.sku, qty: item.qty });
     }
@@ -454,7 +459,7 @@ checkout.post('/:cartId/checkout', async (c) => {
     // because the capped amount depends on the order subtotal. Even if a coupon
     // exists from before this fix, it was created incorrectly with percent_off.
     const needsOnTheFlyCoupon = discount.type === 'percentage' && discount.max_discount_cents;
-    
+
     if (discount.stripe_coupon_id && !needsOnTheFlyCoupon) {
       stripeCouponId = discount.stripe_coupon_id;
     } else if (store.stripe_secret_key) {
@@ -469,7 +474,7 @@ checkout.post('/:cartId/checkout', async (c) => {
           duration: 'once',
           metadata: { merchant_discount_id: discount.id },
         };
-        
+
         if (discount.type === 'percentage' && discount.max_discount_cents) {
           // Use amount_off with the already-calculated capped discount amount
           // discountAmountCents was calculated using calculateDiscount which respects the cap
@@ -483,7 +488,7 @@ checkout.post('/:cartId/checkout', async (c) => {
           couponParams.amount_off = discount.value;
           couponParams.currency = 'usd';
         }
-        
+
         const coupon = await stripe.coupons.create(couponParams);
         stripeCouponId = coupon.id;
       } catch (err: any) {
@@ -493,7 +498,9 @@ checkout.post('/:cartId/checkout', async (c) => {
         await releaseReservedInventory();
         await revertCartStatus();
         console.error(`Failed to create Stripe coupon for discount: ${err.message}`);
-        throw ApiError.invalidRequest('Failed to apply discount. Please try again or remove the discount and proceed.');
+        throw ApiError.invalidRequest(
+          'Failed to apply discount. Please try again or remove the discount and proceed.'
+        );
       }
     }
   }
@@ -521,7 +528,8 @@ checkout.post('/:cartId/checkout', async (c) => {
       automatic_tax: { enabled: true },
       ...(collectShipping && {
         shipping_address_collection: {
-          allowed_countries: shippingCountries as Stripe.Checkout.SessionCreateParams.ShippingAddressCollection.AllowedCountry[],
+          allowed_countries:
+            shippingCountries as Stripe.Checkout.SessionCreateParams.ShippingAddressCollection.AllowedCountry[],
         },
         shipping_options: shippingOptions ?? defaultShippingOptions,
       }),
@@ -575,10 +583,10 @@ checkout.post('/:cartId/apply-discount', async (c) => {
   const { store } = c.get('auth');
   const db = getDb(c.env);
 
-  const [cart] = await db.query<any>(
-    `SELECT * FROM carts WHERE id = ? AND store_id = ?`,
-    [cartId, store.id]
-  );
+  const [cart] = await db.query<any>(`SELECT * FROM carts WHERE id = ? AND store_id = ?`, [
+    cartId,
+    store.id,
+  ]);
   if (!cart) throw ApiError.notFound('Cart not found');
   if (cart.status !== 'open') throw ApiError.conflict('Cart is not open');
 
@@ -634,10 +642,10 @@ checkout.delete('/:cartId/discount', async (c) => {
   const { store } = c.get('auth');
   const db = getDb(c.env);
 
-  const [cart] = await db.query<any>(
-    `SELECT * FROM carts WHERE id = ? AND store_id = ?`,
-    [cartId, store.id]
-  );
+  const [cart] = await db.query<any>(`SELECT * FROM carts WHERE id = ? AND store_id = ?`, [
+    cartId,
+    store.id,
+  ]);
   if (!cart) throw ApiError.notFound('Cart not found');
   if (cart.status !== 'open') throw ApiError.conflict('Cart is not open');
 

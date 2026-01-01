@@ -1,7 +1,7 @@
 #!/usr/bin/env npx tsx
 /**
  * Seed script - creates demo data via the API
- * 
+ *
  * Usage:
  *   npx tsx scripts/seed.ts <api_url> <admin_key>
  *   npx tsx scripts/seed.ts http://localhost:8787 sk_...
@@ -31,7 +31,7 @@ async function api(path: string, body?: any) {
   const res = await fetch(`${API_URL}${path}`, {
     method: body ? 'POST' : 'GET',
     headers: {
-      'Authorization': `Bearer ${API_KEY}`,
+      Authorization: `Bearer ${API_KEY}`,
       'Content-Type': 'application/json',
     },
     body: body ? JSON.stringify(body) : undefined,
@@ -50,10 +50,16 @@ async function seed() {
 
   // Products
   const products = [
-    { title: 'Classic Tee', description: 'Premium cotton t-shirt. Soft, breathable, and built to last.' },
+    {
+      title: 'Classic Tee',
+      description: 'Premium cotton t-shirt. Soft, breathable, and built to last.',
+    },
     { title: 'Hoodie', description: 'Cozy pullover hoodie. Perfect for coding sessions.' },
     { title: 'Cap', description: 'Embroidered baseball cap. One size fits most.' },
-    { title: 'Sticker Pack', description: 'Set of 5 die-cut vinyl stickers. Waterproof and durable.' },
+    {
+      title: 'Sticker Pack',
+      description: 'Set of 5 die-cut vinyl stickers. Waterproof and durable.',
+    },
   ];
 
   const variants: Record<string, any[]> = {
@@ -65,13 +71,13 @@ async function seed() {
       { sku: 'TEE-WHT-M', title: 'White / M', price_cents: 2999, weight_g: 200, stock: 55 },
       { sku: 'TEE-WHT-L', title: 'White / L', price_cents: 2999, weight_g: 220, stock: 45 },
     ],
-    'Hoodie': [
+    Hoodie: [
       { sku: 'HOOD-BLK-M', title: 'Black / M', price_cents: 5999, weight_g: 450, stock: 30 },
       { sku: 'HOOD-BLK-L', title: 'Black / L', price_cents: 5999, weight_g: 500, stock: 25 },
       { sku: 'HOOD-GRY-M', title: 'Gray / M', price_cents: 5999, weight_g: 450, stock: 20 },
       { sku: 'HOOD-GRY-L', title: 'Gray / L', price_cents: 5999, weight_g: 500, stock: 15 },
     ],
-    'Cap': [
+    Cap: [
       { sku: 'CAP-BLK', title: 'Black', price_cents: 2499, weight_g: 100, stock: 100 },
       { sku: 'CAP-NVY', title: 'Navy', price_cents: 2499, weight_g: 100, stock: 80 },
     ],
@@ -82,15 +88,15 @@ async function seed() {
 
   for (const prod of products) {
     console.log(`📦 Creating ${prod.title}...`);
-    
+
     const product = await api('/v1/products', prod);
-    
+
     for (const v of variants[prod.title]) {
       const { stock, ...variant } = v;
       console.log(`   └─ ${variant.sku}`);
-      
+
       await api(`/v1/products/${product.id}/variants`, variant);
-      
+
       // Add inventory
       await api(`/v1/inventory/${encodeURIComponent(variant.sku)}/adjust`, {
         delta: stock,
@@ -101,7 +107,7 @@ async function seed() {
 
   // Create test orders
   console.log('\n🛒 Creating test orders...');
-  
+
   const testOrders = [
     {
       customer_email: 'sarah@example.com',
@@ -112,9 +118,7 @@ async function seed() {
     },
     {
       customer_email: 'mike@example.com',
-      items: [
-        { sku: 'HOOD-BLK-L', qty: 1 },
-      ],
+      items: [{ sku: 'HOOD-BLK-L', qty: 1 }],
     },
     {
       customer_email: 'emma@example.com',
@@ -133,9 +137,7 @@ async function seed() {
     },
     {
       customer_email: 'olivia@example.com',
-      items: [
-        { sku: 'CAP-BLK', qty: 1 },
-      ],
+      items: [{ sku: 'CAP-BLK', qty: 1 }],
     },
     {
       customer_email: 'noah@example.com',
@@ -147,9 +149,7 @@ async function seed() {
     },
     {
       customer_email: 'ava@example.com',
-      items: [
-        { sku: 'HOOD-GRY-L', qty: 2 },
-      ],
+      items: [{ sku: 'HOOD-GRY-L', qty: 2 }],
     },
     {
       customer_email: 'liam@example.com',
@@ -162,27 +162,29 @@ async function seed() {
 
   for (const order of testOrders) {
     const result = await api('/v1/orders/test', order);
-    const itemsSummary = order.items.map(i => `${i.qty}x ${i.sku}`).join(', ');
+    const itemsSummary = order.items.map((i) => `${i.qty}x ${i.sku}`).join(', ');
     console.log(`   └─ ${result.number}: ${order.customer_email} (${itemsSummary})`);
   }
 
   console.log('\n✅ Done! Demo data created.\n');
-  
+
   // Show summary
   const { items: allProducts } = await api('/v1/products');
   const { items: allOrders } = await api('/v1/orders');
   console.log(`Products: ${allProducts.length}`);
-  console.log(`Variants: ${allProducts.reduce((sum: number, p: any) => sum + p.variants.length, 0)}`);
+  console.log(
+    `Variants: ${allProducts.reduce((sum: number, p: any) => sum + p.variants.length, 0)}`
+  );
   console.log(`Orders: ${allOrders.length}`);
-  
+
   const totalRevenue = allOrders.reduce((sum: number, o: any) => sum + o.amounts.total_cents, 0);
   console.log(`Revenue: $${(totalRevenue / 100).toFixed(2)}`);
-  
+
   console.log(`\n📊 Admin dashboard: cd admin && npm run dev`);
   console.log(`   Connect with: ${API_URL}`);
 }
 
-seed().catch(err => {
+seed().catch((err) => {
   console.error('❌ Error:', err.message);
   process.exit(1);
 });

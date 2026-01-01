@@ -12,7 +12,7 @@ async function request(endpoint, options = {}) {
   const res = await fetch(`${API_URL}${endpoint}`, {
     ...options,
     headers: {
-      'Authorization': `Bearer ${PUBLIC_KEY}`,
+      Authorization: `Bearer ${PUBLIC_KEY}`,
       'Content-Type': 'application/json',
       ...options.headers,
     },
@@ -34,7 +34,7 @@ async function request(endpoint, options = {}) {
 export async function getProducts() {
   const data = await request('/v1/products');
   // Filter to only active products with variants
-  return data.items.filter(p => p.status === 'active' && p.variants?.length > 0);
+  return data.items.filter((p) => p.status === 'active' && p.variants?.length > 0);
 }
 
 export async function getProduct(id) {
@@ -70,4 +70,3 @@ export async function checkout(cartId, successUrl, cancelUrl) {
     }),
   });
 }
-

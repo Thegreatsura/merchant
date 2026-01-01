@@ -9,7 +9,16 @@ import {
   createColumnHelper,
   SortingState,
 } from '@tanstack/react-table';
-import { Search, ChevronUp, ChevronDown, ChevronsUpDown, Loader2, RefreshCw, Truck, ExternalLink } from 'lucide-react';
+import {
+  Search,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
+  Loader2,
+  RefreshCw,
+  Truck,
+  ExternalLink,
+} from 'lucide-react';
 import { api, Order } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { Modal } from '../components/Modal';
@@ -17,7 +26,15 @@ import clsx from 'clsx';
 
 const columnHelper = createColumnHelper<Order>();
 
-const ORDER_STATUSES = ['pending', 'paid', 'processing', 'shipped', 'delivered', 'refunded', 'canceled'] as const;
+const ORDER_STATUSES = [
+  'pending',
+  'paid',
+  'processing',
+  'shipped',
+  'delivered',
+  'refunded',
+  'canceled',
+] as const;
 
 export function Orders() {
   const queryClient = useQueryClient();
@@ -53,44 +70,47 @@ export function Orders() {
     },
   });
 
-  const columns = useMemo(() => [
-    columnHelper.accessor('number', {
-      header: 'Order',
-      cell: (info) => (
-        <span className="font-mono text-sm">{info.getValue() || info.row.original.id.slice(0, 8)}</span>
-      ),
-    }),
-    columnHelper.accessor((row) => row.shipping?.name || '', {
-      id: 'name',
-      header: 'Name',
-      cell: (info) => (
-        <span className="font-mono text-sm">{info.getValue() || '-'}</span>
-      ),
-    }),
-    columnHelper.accessor('customer_email', {
-      header: 'Email',
-      cell: (info) => (
-        <span className="font-mono text-sm">{info.getValue() || '-'}</span>
-      ),
-    }),
-    columnHelper.accessor('status', {
-      header: 'Status',
-      cell: (info) => <StatusBadge status={info.getValue()} />,
-    }),
-    columnHelper.accessor((row) => row.amounts.total_cents, {
-      id: 'total',
-      header: 'Total',
-      cell: (info) => (
-        <span className="font-mono text-sm">${(info.getValue() / 100).toFixed(2)}</span>
-      ),
-    }),
-    columnHelper.accessor('created_at', {
-      header: 'Date',
-      cell: (info) => (
-        <span className="font-mono text-sm">{new Date(info.getValue()).toLocaleDateString()}</span>
-      ),
-    }),
-  ], []);
+  const columns = useMemo(
+    () => [
+      columnHelper.accessor('number', {
+        header: 'Order',
+        cell: (info) => (
+          <span className="font-mono text-sm">
+            {info.getValue() || info.row.original.id.slice(0, 8)}
+          </span>
+        ),
+      }),
+      columnHelper.accessor((row) => row.shipping?.name || '', {
+        id: 'name',
+        header: 'Name',
+        cell: (info) => <span className="font-mono text-sm">{info.getValue() || '-'}</span>,
+      }),
+      columnHelper.accessor('customer_email', {
+        header: 'Email',
+        cell: (info) => <span className="font-mono text-sm">{info.getValue() || '-'}</span>,
+      }),
+      columnHelper.accessor('status', {
+        header: 'Status',
+        cell: (info) => <StatusBadge status={info.getValue()} />,
+      }),
+      columnHelper.accessor((row) => row.amounts.total_cents, {
+        id: 'total',
+        header: 'Total',
+        cell: (info) => (
+          <span className="font-mono text-sm">${(info.getValue() / 100).toFixed(2)}</span>
+        ),
+      }),
+      columnHelper.accessor('created_at', {
+        header: 'Date',
+        cell: (info) => (
+          <span className="font-mono text-sm">
+            {new Date(info.getValue()).toLocaleDateString()}
+          </span>
+        ),
+      }),
+    ],
+    []
+  );
 
   const table = useReactTable({
     data: orders,
@@ -109,7 +129,9 @@ export function Orders() {
     <div>
       {/* Header */}
       <div className="flex items-center justify-between mb-4 h-9">
-        <h1 className="text-lg font-semibold" style={{ color: 'var(--text)' }}>Orders</h1>
+        <h1 className="text-lg font-semibold" style={{ color: 'var(--text)' }}>
+          Orders
+        </h1>
         <button
           onClick={() => queryClient.invalidateQueries({ queryKey: ['orders'] })}
           disabled={isFetching}
@@ -126,12 +148,12 @@ export function Orders() {
         style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}
       >
         {/* Filters */}
-        <div
-          className="flex items-center border-b"
-          style={{ borderColor: 'var(--border)' }}
-        >
+        <div className="flex items-center border-b" style={{ borderColor: 'var(--border)' }}>
           {/* Search */}
-          <div className="flex-1 flex items-center gap-2 px-4 py-3" style={{ color: 'var(--text-muted)' }}>
+          <div
+            className="flex-1 flex items-center gap-2 px-4 py-3"
+            style={{ color: 'var(--text-muted)' }}
+          >
             <Search size={16} className="flex-shrink-0" />
             <input
               type="text"
@@ -155,7 +177,9 @@ export function Orders() {
           >
             <option value="">All statuses</option>
             {ORDER_STATUSES.map((s) => (
-              <option key={s} value={s}>{s}</option>
+              <option key={s} value={s}>
+                {s}
+              </option>
             ))}
           </select>
         </div>
@@ -180,7 +204,8 @@ export function Orders() {
                       onClick={header.column.getToggleSortingHandler()}
                       className={clsx(
                         'px-4 py-3 text-left text-xs font-medium uppercase tracking-wide',
-                        header.column.getCanSort() && 'cursor-pointer select-none hover:bg-[var(--bg-hover)]'
+                        header.column.getCanSort() &&
+                          'cursor-pointer select-none hover:bg-[var(--bg-hover)]'
                       )}
                       style={{ color: 'var(--text-muted)' }}
                     >
@@ -227,7 +252,9 @@ export function Orders() {
       <Modal
         open={!!selectedOrder}
         onClose={() => setSelectedOrder(null)}
-        title={selectedOrder ? `Order ${selectedOrder.number || selectedOrder.id.slice(0, 8)}` : 'Order'}
+        title={
+          selectedOrder ? `Order ${selectedOrder.number || selectedOrder.id.slice(0, 8)}` : 'Order'
+        }
         size="lg"
       >
         {selectedOrder && (
@@ -241,7 +268,10 @@ export function Orders() {
               <div className="space-y-4">
                 {/* Customer */}
                 <div className="p-3 rounded-lg" style={{ border: '1px solid var(--border)' }}>
-                  <h4 className="text-xs font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+                  <h4
+                    className="text-xs font-medium uppercase tracking-wide mb-2"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
                     Customer
                   </h4>
                   {selectedOrder.shipping?.name && (
@@ -251,7 +281,10 @@ export function Orders() {
                     {selectedOrder.customer_email}
                   </p>
                   {selectedOrder.shipping?.phone && (
-                    <p className="font-mono text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
+                    <p
+                      className="font-mono text-sm mt-1"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
                       {selectedOrder.shipping.phone}
                     </p>
                   )}
@@ -260,21 +293,34 @@ export function Orders() {
                 {/* Shipping Address */}
                 {selectedOrder.shipping?.address && (
                   <div className="p-3 rounded-lg" style={{ border: '1px solid var(--border)' }}>
-                    <h4 className="text-xs font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+                    <h4
+                      className="text-xs font-medium uppercase tracking-wide mb-2"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
                       Ship To
                     </h4>
                     <div className="font-mono text-sm">
                       {selectedOrder.shipping.name && (
                         <p className="font-medium">{selectedOrder.shipping.name}</p>
                       )}
-                      {selectedOrder.shipping.address.line1 && <p>{selectedOrder.shipping.address.line1}</p>}
-                      {selectedOrder.shipping.address.line2 && <p>{selectedOrder.shipping.address.line2}</p>}
+                      {selectedOrder.shipping.address.line1 && (
+                        <p>{selectedOrder.shipping.address.line1}</p>
+                      )}
+                      {selectedOrder.shipping.address.line2 && (
+                        <p>{selectedOrder.shipping.address.line2}</p>
+                      )}
                       <p>
-                        {[selectedOrder.shipping.address.city, selectedOrder.shipping.address.state, selectedOrder.shipping.address.postal_code]
+                        {[
+                          selectedOrder.shipping.address.city,
+                          selectedOrder.shipping.address.state,
+                          selectedOrder.shipping.address.postal_code,
+                        ]
                           .filter(Boolean)
                           .join(', ')}
                       </p>
-                      {selectedOrder.shipping.address.country && <p>{selectedOrder.shipping.address.country}</p>}
+                      {selectedOrder.shipping.address.country && (
+                        <p>{selectedOrder.shipping.address.country}</p>
+                      )}
                     </div>
                   </div>
                 )}
@@ -282,10 +328,16 @@ export function Orders() {
                 {/* Stripe Info */}
                 {selectedOrder.stripe?.payment_intent_id && (
                   <div className="p-3 rounded-lg" style={{ border: '1px solid var(--border)' }}>
-                    <h4 className="text-xs font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+                    <h4
+                      className="text-xs font-medium uppercase tracking-wide mb-2"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
                       Stripe
                     </h4>
-                    <p className="text-xs font-mono break-all" style={{ color: 'var(--text-muted)' }}>
+                    <p
+                      className="text-xs font-mono break-all"
+                      style={{ color: 'var(--text-muted)' }}
+                    >
                       PI: {selectedOrder.stripe.payment_intent_id}
                     </p>
                   </div>
@@ -296,7 +348,10 @@ export function Orders() {
               <div className="space-y-4">
                 {/* Items */}
                 <div className="p-3 rounded-lg" style={{ border: '1px solid var(--border)' }}>
-                  <h4 className="text-xs font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+                  <h4
+                    className="text-xs font-medium uppercase tracking-wide mb-2"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
                     Items
                   </h4>
                   <div className="space-y-2">
@@ -308,7 +363,9 @@ export function Orders() {
                             {item.sku} × {item.qty}
                           </p>
                         </div>
-                        <p className="font-mono">{formatCurrency(item.unit_price_cents * item.qty)}</p>
+                        <p className="font-mono">
+                          {formatCurrency(item.unit_price_cents * item.qty)}
+                        </p>
                       </div>
                     ))}
                   </div>
@@ -329,7 +386,10 @@ export function Orders() {
                       <span style={{ color: 'var(--text-secondary)' }}>Shipping</span>
                       <span>{formatCurrency(selectedOrder.amounts.shipping_cents)}</span>
                     </div>
-                    <div className="flex justify-between pt-2 mt-2 border-t font-semibold" style={{ borderColor: 'var(--border)' }}>
+                    <div
+                      className="flex justify-between pt-2 mt-2 border-t font-semibold"
+                      style={{ borderColor: 'var(--border)' }}
+                    >
                       <span>Total</span>
                       <span>{formatCurrency(selectedOrder.amounts.total_cents)}</span>
                     </div>
@@ -339,10 +399,16 @@ export function Orders() {
             </div>
 
             {/* Status & Tracking */}
-            <div className="grid grid-cols-2 gap-5 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+            <div
+              className="grid grid-cols-2 gap-5 pt-4 border-t"
+              style={{ borderColor: 'var(--border)' }}
+            >
               {/* Status Update */}
               <div>
-                <h4 className="text-xs font-medium uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>
+                <h4
+                  className="text-xs font-medium uppercase tracking-wide mb-2"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
                   Status
                 </h4>
                 <select
@@ -362,14 +428,19 @@ export function Orders() {
                   }}
                 >
                   {ORDER_STATUSES.map((s) => (
-                    <option key={s} value={s}>{s}</option>
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
                   ))}
                 </select>
               </div>
 
               {/* Tracking */}
               <div>
-                <h4 className="text-xs font-medium uppercase tracking-wide mb-2 flex items-center gap-2" style={{ color: 'var(--text-secondary)' }}>
+                <h4
+                  className="text-xs font-medium uppercase tracking-wide mb-2 flex items-center gap-2"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
                   <Truck size={14} />
                   Tracking
                 </h4>
@@ -408,7 +479,10 @@ export function Orders() {
             </div>
 
             {/* Footer: Timestamp + Refund */}
-            <div className="flex items-center justify-between pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+            <div
+              className="flex items-center justify-between pt-4 border-t"
+              style={{ borderColor: 'var(--border)' }}
+            >
               <p className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
                 Created {new Date(selectedOrder.created_at).toLocaleString()}
               </p>

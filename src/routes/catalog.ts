@@ -49,15 +49,15 @@ catalogRoutes.get('/', async (c) => {
 
   // Batch fetch all variants for these products (avoids N+1 query)
   const productIds = products.map((p) => p.id);
-  let variantsByProduct: Record<string, any[]> = {};
-  
+  const variantsByProduct: Record<string, any[]> = {};
+
   if (productIds.length > 0) {
     const placeholders = productIds.map(() => '?').join(',');
     const allVariants = await db.query<any>(
       `SELECT * FROM variants WHERE product_id IN (${placeholders}) ORDER BY created_at ASC`,
       productIds
     );
-    
+
     // Group variants by product_id
     for (const v of allVariants) {
       if (!variantsByProduct[v.product_id]) {
@@ -99,10 +99,10 @@ catalogRoutes.get('/:id', async (c) => {
   const db = getDb(c.env);
   const id = c.req.param('id');
 
-  const [product] = await db.query<any>(
-    `SELECT * FROM products WHERE id = ? AND store_id = ?`,
-    [id, store.id]
-  );
+  const [product] = await db.query<any>(`SELECT * FROM products WHERE id = ? AND store_id = ?`, [
+    id,
+    store.id,
+  ]);
 
   if (!product) throw ApiError.notFound('Product not found');
 
@@ -146,7 +146,10 @@ catalogRoutes.post('/', adminOnly, async (c) => {
     [id, store.id, title, description || null, timestamp]
   );
 
-  return c.json({ id, title, description: description || null, status: 'active', variants: [] }, 201);
+  return c.json(
+    { id, title, description: description || null, status: 'active', variants: [] },
+    201
+  );
 });
 
 // PATCH /v1/products/:id (admin only)
@@ -158,10 +161,10 @@ catalogRoutes.patch('/:id', adminOnly, async (c) => {
   const { store } = c.get('auth');
   const db = getDb(c.env);
 
-  const [existing] = await db.query<any>(
-    `SELECT * FROM products WHERE id = ? AND store_id = ?`,
-    [id, store.id]
-  );
+  const [existing] = await db.query<any>(`SELECT * FROM products WHERE id = ? AND store_id = ?`, [
+    id,
+    store.id,
+  ]);
 
   if (!existing) throw ApiError.notFound('Product not found');
 
@@ -188,21 +191,15 @@ catalogRoutes.patch('/:id', adminOnly, async (c) => {
     params.push(id);
     params.push(store.id);
 
-    await db.run(
-      `UPDATE products SET ${updates.join(', ')} WHERE id = ? AND store_id = ?`,
-      params
-    );
+    await db.run(`UPDATE products SET ${updates.join(', ')} WHERE id = ? AND store_id = ?`, params);
   }
 
-  const [product] = await db.query<any>(
-    `SELECT * FROM products WHERE id = ? AND store_id = ?`,
-    [id, store.id]
-  );
+  const [product] = await db.query<any>(`SELECT * FROM products WHERE id = ? AND store_id = ?`, [
+    id,
+    store.id,
+  ]);
 
-  const variants = await db.query<any>(
-    `SELECT * FROM variants WHERE product_id = ?`,
-    [id]
-  );
+  const variants = await db.query<any>(`SELECT * FROM variants WHERE product_id = ?`, [id]);
 
   return c.json({
     id: product.id,
@@ -235,10 +232,10 @@ catalogRoutes.post('/:id/variants', adminOnly, async (c) => {
   const db = getDb(c.env);
 
   // Check product exists
-  const [product] = await db.query<any>(
-    `SELECT * FROM products WHERE id = ? AND store_id = ?`,
-    [productId, store.id]
-  );
+  const [product] = await db.query<any>(`SELECT * FROM products WHERE id = ? AND store_id = ?`, [
+    productId,
+    store.id,
+  ]);
   if (!product) throw ApiError.notFound('Product not found');
 
   // Check SKU uniqueness for this store
@@ -297,10 +294,11 @@ catalogRoutes.patch('/:id/variants/:variantId', adminOnly, async (c) => {
     if (existingSku) throw ApiError.conflict(`SKU ${sku} already exists`);
 
     // Update inventory SKU as well
-    await db.run(
-      `UPDATE inventory SET sku = ? WHERE sku = ? AND store_id = ?`,
-      [sku, existing.sku, store.id]
-    );
+    await db.run(`UPDATE inventory SET sku = ? WHERE sku = ? AND store_id = ?`, [
+      sku,
+      existing.sku,
+      store.id,
+    ]);
 
     updates.push('sku = ?');
     params.push(sku);
@@ -343,18 +341,15 @@ catalogRoutes.delete('/:id', adminOnly, async (c) => {
   const { store } = c.get('auth');
   const db = getDb(c.env);
 
-  const [product] = await db.query<any>(
-    `SELECT * FROM products WHERE id = ? AND store_id = ?`,
-    [id, store.id]
-  );
+  const [product] = await db.query<any>(`SELECT * FROM products WHERE id = ? AND store_id = ?`, [
+    id,
+    store.id,
+  ]);
   if (!product) throw ApiError.notFound('Product not found');
 
   // Check if any variants have been used in orders
-  const variants = await db.query<any>(
-    `SELECT sku FROM variants WHERE product_id = ?`,
-    [id]
-  );
-  
+  const variants = await db.query<any>(`SELECT sku FROM variants WHERE product_id = ?`, [id]);
+
   if (variants.length > 0) {
     const skus = variants.map((v) => v.sku);
     const placeholders = skus.map(() => '?').join(',');
@@ -362,9 +357,11 @@ catalogRoutes.delete('/:id', adminOnly, async (c) => {
       `SELECT id FROM order_items WHERE sku IN (${placeholders}) LIMIT 1`,
       skus
     );
-    
+
     if (orderItem) {
-      throw ApiError.conflict('Cannot delete product with variants that have been ordered. Set status to draft instead.');
+      throw ApiError.conflict(
+        'Cannot delete product with variants that have been ordered. Set status to draft instead.'
+      );
     }
   }
 
@@ -375,7 +372,7 @@ catalogRoutes.delete('/:id', adminOnly, async (c) => {
 
   // Delete variants
   await db.run(`DELETE FROM variants WHERE product_id = ?`, [id]);
-  
+
   // Delete product
   await db.run(`DELETE FROM products WHERE id = ?`, [id]);
 
@@ -396,18 +393,19 @@ catalogRoutes.delete('/:id/variants/:variantId', adminOnly, async (c) => {
   if (!variant) throw ApiError.notFound('Variant not found');
 
   // Check if variant has been used in any orders
-  const [orderItem] = await db.query<any>(
-    `SELECT id FROM order_items WHERE sku = ? LIMIT 1`,
-    [variant.sku]
-  );
-  
+  const [orderItem] = await db.query<any>(`SELECT id FROM order_items WHERE sku = ? LIMIT 1`, [
+    variant.sku,
+  ]);
+
   if (orderItem) {
-    throw ApiError.conflict('Cannot delete variant that has been ordered. Set product status to draft instead.');
+    throw ApiError.conflict(
+      'Cannot delete variant that has been ordered. Set product status to draft instead.'
+    );
   }
 
   // Delete inventory record
   await db.run(`DELETE FROM inventory WHERE sku = ? AND store_id = ?`, [variant.sku, store.id]);
-  
+
   // Delete variant
   await db.run(`DELETE FROM variants WHERE id = ?`, [variantId]);
 

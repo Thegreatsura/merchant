@@ -85,3 +85,6 @@ CREATE INDEX IF NOT EXISTS idx_customers_store_email ON customers(store_id, emai
 CREATE INDEX IF NOT EXISTS idx_customer_addresses_customer ON customer_addresses(customer_id);
 CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id);
 
+
+
+

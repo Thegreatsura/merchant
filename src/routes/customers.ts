@@ -1,38 +1,95 @@
-import { Hono } from 'hono';
+import { OpenAPIHono, createRoute } from '@hono/zod-openapi';
+import { z } from '@hono/zod-openapi';
 import { getDb } from '../db';
-import { ApiError, type Env, type AuthContext, now } from '../types';
+import { ApiError, now, type HonoEnv } from '../types';
 import { authMiddleware, adminOnly } from '../middleware/auth';
+import {
+  IdParam,
+  CustomerResponse,
+  CustomerWithAddresses,
+  CustomerListResponse,
+  CustomerQuery,
+  UpdateCustomerBody,
+  CreateAddressBody,
+  AddressResponse,
+  AddressIdParam,
+  OrderListResponse,
+  PaginationQuery,
+  ErrorResponse,
+  DeletedResponse,
+} from '../schemas';
 
-// ============================================================
-// CUSTOMER ROUTES
-// ============================================================
+const CustomerOrdersQuery = PaginationQuery;
 
-export const customers = new Hono<{ Bindings: Env; Variables: { auth: AuthContext } }>();
+const CustomerOrderResponse = z.object({
+  id: z.string().uuid(),
+  number: z.string(),
+  status: z.string(),
+  shipping: z.object({
+    name: z.string().nullable(),
+    phone: z.string().nullable(),
+    address: z.any().nullable(),
+  }),
+  amounts: z.object({
+    subtotal_cents: z.number().int(),
+    tax_cents: z.number().int(),
+    shipping_cents: z.number().int(),
+    total_cents: z.number().int(),
+    currency: z.string(),
+  }),
+  items: z.array(z.object({
+    sku: z.string(),
+    title: z.string(),
+    qty: z.number().int(),
+    unit_price_cents: z.number().int(),
+  })),
+  tracking: z.object({
+    number: z.string(),
+    url: z.string().nullable(),
+    shipped_at: z.string().nullable(),
+  }).nullable(),
+  created_at: z.string().datetime(),
+}).openapi('CustomerOrder');
 
-// All customer routes require admin auth
-customers.use('*', authMiddleware, adminOnly);
+const CustomerOrdersResponse = z.object({
+  items: z.array(CustomerOrderResponse),
+  pagination: z.object({
+    has_more: z.boolean(),
+    next_cursor: z.string().nullable(),
+  }),
+}).openapi('CustomerOrdersList');
 
-// ------------------------------------------------------------
-// GET /v1/customers - List customers with pagination
-// ------------------------------------------------------------
-customers.get('/', async (c) => {
-  const { store } = c.get('auth');
-  const db = getDb(c.env);
+const app = new OpenAPIHono<HonoEnv>();
 
-  const limit = Math.min(Number(c.req.query('limit')) || 50, 100);
-  const cursor = c.req.query('cursor');
-  const search = c.req.query('search');
+app.use('*', authMiddleware);
 
-  let query = `SELECT * FROM customers WHERE store_id = ?`;
-  const params: any[] = [store.id];
+const listCustomers = createRoute({
+  method: 'get',
+  path: '/',
+  tags: ['Customers'],
+  summary: 'List customers',
+  description: 'List customers with pagination and optional search',
+  security: [{ bearerAuth: [] }],
+  middleware: [adminOnly] as const,
+  request: { query: CustomerQuery },
+  responses: {
+    200: { content: { 'application/json': { schema: CustomerListResponse } }, description: 'List of customers' },
+  },
+});
 
-  // Search by email or name
+app.openapi(listCustomers, async (c) => {
+  const db = getDb(c.var.db);
+  const { limit: limitStr, cursor, search } = c.req.valid('query');
+  const limit = Math.min(parseInt(limitStr || '50'), 100);
+
+  let query = `SELECT * FROM customers WHERE 1=1`;
+  const params: any[] = [];
+
   if (search) {
     query += ` AND (email LIKE ? OR name LIKE ?)`;
     params.push(`%${search}%`, `%${search}%`);
   }
 
-  // Cursor pagination
   if (cursor) {
     query += ` AND created_at < ?`;
     params.push(cursor);
@@ -51,57 +108,70 @@ customers.get('/', async (c) => {
       has_more: hasMore,
       next_cursor: hasMore ? items[items.length - 1].created_at : null,
     },
-  });
+  }, 200);
 });
 
-// ------------------------------------------------------------
-// GET /v1/customers/:id - Get single customer with addresses
-// ------------------------------------------------------------
-customers.get('/:id', async (c) => {
-  const { store } = c.get('auth');
-  const db = getDb(c.env);
-  const customerId = c.req.param('id');
+const getCustomer = createRoute({
+  method: 'get',
+  path: '/{id}',
+  tags: ['Customers'],
+  summary: 'Get customer by ID',
+  description: 'Returns customer details with addresses',
+  security: [{ bearerAuth: [] }],
+  middleware: [adminOnly] as const,
+  request: { params: IdParam },
+  responses: {
+    200: { content: { 'application/json': { schema: CustomerWithAddresses } }, description: 'Customer details' },
+    404: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Customer not found' },
+  },
+});
 
-  const [customer] = await db.query<any>(`SELECT * FROM customers WHERE id = ? AND store_id = ?`, [
-    customerId,
-    store.id,
-  ]);
+app.openapi(getCustomer, async (c) => {
+  const db = getDb(c.var.db);
+  const { id } = c.req.valid('param');
 
+  const [customer] = await db.query<any>(`SELECT * FROM customers WHERE id = ?`, [id]);
   if (!customer) throw ApiError.notFound('Customer');
 
-  // Get addresses
   const addresses = await db.query<any>(
     `SELECT * FROM customer_addresses WHERE customer_id = ? ORDER BY is_default DESC, created_at DESC`,
-    [customerId]
+    [id]
   );
 
   return c.json({
     ...formatCustomer(customer),
     addresses: addresses.map(formatAddress),
-  });
+  }, 200);
 });
 
-// ------------------------------------------------------------
-// GET /v1/customers/:id/orders - Get customer's order history
-// ------------------------------------------------------------
-customers.get('/:id/orders', async (c) => {
-  const { store } = c.get('auth');
-  const db = getDb(c.env);
-  const customerId = c.req.param('id');
+const getCustomerOrders = createRoute({
+  method: 'get',
+  path: '/{id}/orders',
+  tags: ['Customers'],
+  summary: 'Get customer order history',
+  security: [{ bearerAuth: [] }],
+  middleware: [adminOnly] as const,
+  request: {
+    params: IdParam,
+    query: CustomerOrdersQuery,
+  },
+  responses: {
+    200: { content: { 'application/json': { schema: CustomerOrdersResponse } }, description: 'Customer orders' },
+    404: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Customer not found' },
+  },
+});
 
-  const limit = Math.min(Number(c.req.query('limit')) || 20, 100);
-  const cursor = c.req.query('cursor');
+app.openapi(getCustomerOrders, async (c) => {
+  const db = getDb(c.var.db);
+  const { id } = c.req.valid('param');
+  const { limit: limitStr, cursor } = c.req.valid('query');
+  const limit = Math.min(parseInt(limitStr || '20'), 100);
 
-  // Verify customer exists and belongs to store
-  const [customer] = await db.query<any>(`SELECT id FROM customers WHERE id = ? AND store_id = ?`, [
-    customerId,
-    store.id,
-  ]);
-
+  const [customer] = await db.query<any>(`SELECT id FROM customers WHERE id = ?`, [id]);
   if (!customer) throw ApiError.notFound('Customer');
 
   let query = `SELECT * FROM orders WHERE customer_id = ?`;
-  const params: any[] = [customerId];
+  const params: any[] = [id];
 
   if (cursor) {
     query += ` AND created_at < ?`;
@@ -115,7 +185,6 @@ customers.get('/:id/orders', async (c) => {
   const hasMore = rows.length > limit;
   const items = hasMore ? rows.slice(0, -1) : rows;
 
-  // Batch fetch all order items (avoids N+1 query)
   const orderIds = items.map((o: any) => o.id);
   const itemsByOrder: Record<string, any[]> = {};
 
@@ -145,26 +214,34 @@ customers.get('/:id/orders', async (c) => {
       has_more: hasMore,
       next_cursor: hasMore ? items[items.length - 1].created_at : null,
     },
-  });
+  }, 200);
 });
 
-// ------------------------------------------------------------
-// PATCH /v1/customers/:id - Update customer
-// ------------------------------------------------------------
-customers.patch('/:id', async (c) => {
-  const { store } = c.get('auth');
-  const db = getDb(c.env);
-  const customerId = c.req.param('id');
-  const body = await c.req.json();
+const updateCustomer = createRoute({
+  method: 'patch',
+  path: '/{id}',
+  tags: ['Customers'],
+  summary: 'Update customer',
+  security: [{ bearerAuth: [] }],
+  middleware: [adminOnly] as const,
+  request: {
+    params: IdParam,
+    body: { content: { 'application/json': { schema: UpdateCustomerBody } } },
+  },
+  responses: {
+    200: { content: { 'application/json': { schema: CustomerResponse } }, description: 'Updated customer' },
+    404: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Customer not found' },
+  },
+});
 
-  const [customer] = await db.query<any>(`SELECT * FROM customers WHERE id = ? AND store_id = ?`, [
-    customerId,
-    store.id,
-  ]);
+app.openapi(updateCustomer, async (c) => {
+  const db = getDb(c.var.db);
+  const { id } = c.req.valid('param');
+  const body = c.req.valid('json');
 
+  const [customer] = await db.query<any>(`SELECT * FROM customers WHERE id = ?`, [id]);
   if (!customer) throw ApiError.notFound('Customer');
 
-  // Allowed updates
   const updates: string[] = [];
   const params: any[] = [];
 
@@ -186,54 +263,55 @@ customers.patch('/:id', async (c) => {
   }
 
   if (updates.length === 0) {
-    return c.json(formatCustomer(customer));
+    return c.json(formatCustomer(customer), 200);
   }
 
   updates.push('updated_at = ?');
   params.push(now());
-  params.push(customerId);
+  params.push(id);
 
   await db.run(`UPDATE customers SET ${updates.join(', ')} WHERE id = ?`, params);
 
-  const [updated] = await db.query<any>(`SELECT * FROM customers WHERE id = ?`, [customerId]);
+  const [updated] = await db.query<any>(`SELECT * FROM customers WHERE id = ?`, [id]);
 
-  return c.json(formatCustomer(updated));
+  return c.json(formatCustomer(updated), 200);
 });
 
-// ------------------------------------------------------------
-// POST /v1/customers/:id/addresses - Add address
-// ------------------------------------------------------------
-customers.post('/:id/addresses', async (c) => {
-  const { store } = c.get('auth');
-  const db = getDb(c.env);
-  const customerId = c.req.param('id');
-  const body = await c.req.json();
+const createAddress = createRoute({
+  method: 'post',
+  path: '/{id}/addresses',
+  tags: ['Customers'],
+  summary: 'Add address to customer',
+  security: [{ bearerAuth: [] }],
+  middleware: [adminOnly] as const,
+  request: {
+    params: IdParam,
+    body: { content: { 'application/json': { schema: CreateAddressBody } } },
+  },
+  responses: {
+    201: { content: { 'application/json': { schema: AddressResponse } }, description: 'Created address' },
+    400: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Invalid request' },
+    404: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Customer not found' },
+  },
+});
 
-  const [customer] = await db.query<any>(`SELECT id FROM customers WHERE id = ? AND store_id = ?`, [
-    customerId,
-    store.id,
-  ]);
+app.openapi(createAddress, async (c) => {
+  const db = getDb(c.var.db);
+  const { id } = c.req.valid('param');
+  const body = c.req.valid('json');
 
+  const [customer] = await db.query<any>(`SELECT id FROM customers WHERE id = ?`, [id]);
   if (!customer) throw ApiError.notFound('Customer');
 
-  // Validate required fields
-  if (!body.line1) throw ApiError.invalidRequest('line1 is required');
-  if (!body.city) throw ApiError.invalidRequest('city is required');
-  if (!body.postal_code) throw ApiError.invalidRequest('postal_code is required');
+  const addressId = crypto.randomUUID();
 
-  const id = crypto.randomUUID();
-
-  // If setting as default, unset other defaults
   if (body.is_default) {
-    await db.run(`UPDATE customer_addresses SET is_default = 0 WHERE customer_id = ?`, [
-      customerId,
-    ]);
+    await db.run(`UPDATE customer_addresses SET is_default = 0 WHERE customer_id = ?`, [id]);
   }
 
-  // Check if first address (auto-default)
   const [addressCount] = await db.query<any>(
     `SELECT COUNT(*) as count FROM customer_addresses WHERE customer_id = ?`,
-    [customerId]
+    [id]
   );
   const isDefault = body.is_default || addressCount.count === 0 ? 1 : 0;
 
@@ -241,8 +319,8 @@ customers.post('/:id/addresses', async (c) => {
     `INSERT INTO customer_addresses (id, customer_id, label, is_default, name, company, line1, line2, city, state, postal_code, country, phone)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
+      addressId,
       id,
-      customerId,
       body.label || null,
       isDefault,
       body.name || null,
@@ -257,52 +335,50 @@ customers.post('/:id/addresses', async (c) => {
     ]
   );
 
-  const [address] = await db.query<any>(`SELECT * FROM customer_addresses WHERE id = ?`, [id]);
+  const [address] = await db.query<any>(`SELECT * FROM customer_addresses WHERE id = ?`, [addressId]);
 
   return c.json(formatAddress(address), 201);
 });
 
-// ------------------------------------------------------------
-// DELETE /v1/customers/:id/addresses/:addressId - Delete address
-// ------------------------------------------------------------
-customers.delete('/:id/addresses/:addressId', async (c) => {
-  const { store } = c.get('auth');
-  const db = getDb(c.env);
-  const customerId = c.req.param('id');
-  const addressId = c.req.param('addressId');
+const deleteAddress = createRoute({
+  method: 'delete',
+  path: '/{id}/addresses/{addressId}',
+  tags: ['Customers'],
+  summary: 'Delete customer address',
+  security: [{ bearerAuth: [] }],
+  middleware: [adminOnly] as const,
+  request: { params: AddressIdParam },
+  responses: {
+    200: { content: { 'application/json': { schema: DeletedResponse } }, description: 'Address deleted' },
+    404: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Customer or address not found' },
+  },
+});
 
-  // Verify customer belongs to store
-  const [customer] = await db.query<any>(`SELECT id FROM customers WHERE id = ? AND store_id = ?`, [
-    customerId,
-    store.id,
-  ]);
+app.openapi(deleteAddress, async (c) => {
+  const db = getDb(c.var.db);
+  const { id, addressId } = c.req.valid('param');
 
+  const [customer] = await db.query<any>(`SELECT id FROM customers WHERE id = ?`, [id]);
   if (!customer) throw ApiError.notFound('Customer');
 
   const [address] = await db.query<any>(
     `SELECT * FROM customer_addresses WHERE id = ? AND customer_id = ?`,
-    [addressId, customerId]
+    [addressId, id]
   );
-
   if (!address) throw ApiError.notFound('Address');
 
   await db.run(`DELETE FROM customer_addresses WHERE id = ?`, [addressId]);
 
-  // If deleted address was default, set another as default
   if (address.is_default) {
     await db.run(
       `UPDATE customer_addresses SET is_default = 1 
        WHERE customer_id = ? AND id = (SELECT id FROM customer_addresses WHERE customer_id = ? LIMIT 1)`,
-      [customerId, customerId]
+      [id, id]
     );
   }
 
-  return c.json({ deleted: true });
+  return c.json({ deleted: true as const }, 200);
 });
-
-// ------------------------------------------------------------
-// Formatters
-// ------------------------------------------------------------
 
 function formatCustomer(c: any) {
   return {
@@ -364,12 +440,10 @@ function formatOrder(o: any) {
       unit_price_cents: i.unit_price_cents,
     })),
     tracking: o.tracking_number
-      ? {
-          number: o.tracking_number,
-          url: o.tracking_url,
-          shipped_at: o.shipped_at,
-        }
+      ? { number: o.tracking_number, url: o.tracking_url, shipped_at: o.shipped_at }
       : null,
     created_at: o.created_at,
   };
 }
+
+export { app as customers };

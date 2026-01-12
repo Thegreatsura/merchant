@@ -81,3 +81,6 @@ export function updateCartBadge() {
 if (typeof window !== 'undefined') {
   document.addEventListener('DOMContentLoaded', updateCartBadge);
 }
+
+
+

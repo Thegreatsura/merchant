@@ -1,83 +1,97 @@
-import { Hono } from 'hono';
+import { OpenAPIHono, createRoute } from '@hono/zod-openapi';
+import { z } from '@hono/zod-openapi';
 import { getDb } from '../db';
-import { authMiddleware, adminOnly, hashKey, generateApiKey } from '../middleware/auth';
-import { ApiError, uuid, now, type Env, type AuthContext } from '../types';
+import { authMiddleware, adminOnly } from '../middleware/auth';
+import { ApiError, now, type HonoEnv } from '../types';
+import { SetupStripeBody, OkResponse, ErrorResponse } from '../schemas';
 
-// ============================================================
-// SETUP ROUTES
-// ============================================================
+const app = new OpenAPIHono<HonoEnv>();
 
-export const setup = new Hono<{
-  Bindings: Env;
-  Variables: { auth: AuthContext };
-}>();
+const InitKeysBody = z.object({
+  keys: z.array(z.object({
+    id: z.string().uuid(),
+    key_hash: z.string(),
+    key_prefix: z.string(),
+    role: z.enum(['public', 'admin']),
+  })),
+}).openapi('InitKeysBody');
 
-// POST /v1/setup/store - Create a new store
-setup.post('/store', authMiddleware, adminOnly, async (c) => {
-  const body = await c.req.json();
-  const name = body?.name;
-
-  if (!name || typeof name !== 'string') {
-    throw ApiError.invalidRequest('name is required');
-  }
-
-  const db = getDb(c.env);
-  const storeId = uuid();
-
-  await db.run(`INSERT INTO stores (id, name) VALUES (?, ?)`, [storeId, name]);
-
-  // Generate API keys
-  const publicKey = generateApiKey('pk');
-  const adminKey = generateApiKey('sk');
-
-  await db.run(
-    `INSERT INTO api_keys (id, store_id, key_hash, key_prefix, role) VALUES (?, ?, ?, ?, ?)`,
-    [uuid(), storeId, await hashKey(publicKey), 'pk_', 'public']
-  );
-  await db.run(
-    `INSERT INTO api_keys (id, store_id, key_hash, key_prefix, role) VALUES (?, ?, ?, ?, ?)`,
-    [uuid(), storeId, await hashKey(adminKey), 'sk_', 'admin']
-  );
-
-  return c.json({
-    store: { id: storeId, name, status: 'enabled' },
-    keys: {
-      public: { key: publicKey, role: 'public' },
-      admin: { key: adminKey, role: 'admin' },
-    },
-  });
+const initKeys = createRoute({
+  method: 'post',
+  path: '/init',
+  tags: ['Setup'],
+  summary: 'Initialize API keys',
+  description: 'Create initial API keys (only works if no keys exist)',
+  request: {
+    body: { content: { 'application/json': { schema: InitKeysBody } } },
+  },
+  responses: {
+    200: { content: { 'application/json': { schema: OkResponse } }, description: 'Keys created' },
+    409: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Keys already exist' },
+  },
 });
 
-// POST /v1/setup/stripe - Connect Stripe
-setup.post('/stripe', authMiddleware, adminOnly, async (c) => {
-  const body = await c.req.json();
-  const stripeSecretKey = body?.stripe_secret_key;
-  const stripeWebhookSecret = body?.stripe_webhook_secret;
+app.openapi(initKeys, async (c) => {
+  const { keys } = c.req.valid('json');
+  const db = getDb(c.var.db);
 
-  if (!stripeSecretKey?.startsWith('sk_')) {
-    throw ApiError.invalidRequest('stripe_secret_key must start with sk_');
-  }
-  if (stripeWebhookSecret && !stripeWebhookSecret.startsWith('whsec_')) {
-    throw ApiError.invalidRequest('stripe_webhook_secret must start with whsec_');
+  const existing = await db.query<{ id: string }>(`SELECT id FROM api_keys LIMIT 1`);
+  if (existing.length > 0) {
+    throw ApiError.conflict('API keys already exist. Use admin key to manage keys.');
   }
 
-  // Validate Stripe key
+  for (const key of keys) {
+    await db.run(
+      `INSERT INTO api_keys (id, key_hash, key_prefix, role, created_at) VALUES (?, ?, ?, ?, ?)`,
+      [key.id, key.key_hash, key.key_prefix, key.role, now()]
+    );
+  }
+
+  return c.json({ ok: true as const }, 200);
+});
+
+const setupStripe = createRoute({
+  method: 'post',
+  path: '/stripe',
+  tags: ['Setup'],
+  summary: 'Connect Stripe',
+  description: 'Configure Stripe API keys for payment processing',
+  security: [{ bearerAuth: [] }],
+  middleware: [authMiddleware, adminOnly] as const,
+  request: {
+    body: { content: { 'application/json': { schema: SetupStripeBody } } },
+  },
+  responses: {
+    200: { content: { 'application/json': { schema: OkResponse } }, description: 'Stripe connected' },
+    400: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Invalid Stripe key' },
+  },
+});
+
+app.openapi(setupStripe, async (c) => {
+  const { stripe_secret_key, stripe_webhook_secret } = c.req.valid('json');
+
   const res = await fetch('https://api.stripe.com/v1/balance', {
-    headers: { Authorization: `Bearer ${stripeSecretKey}` },
+    headers: { Authorization: `Bearer ${stripe_secret_key}` },
   });
 
   if (!res.ok) {
     throw ApiError.invalidRequest('Invalid Stripe secret key');
   }
 
-  const { store } = c.get('auth');
-  const db = getDb(c.env);
+  const db = getDb(c.var.db);
 
-  await db.run(`UPDATE stores SET stripe_secret_key = ?, stripe_webhook_secret = ? WHERE id = ?`, [
-    stripeSecretKey,
-    stripeWebhookSecret || null,
-    store.id,
-  ]);
+  const configValue = JSON.stringify({
+    secret_key: stripe_secret_key,
+    webhook_secret: stripe_webhook_secret || null,
+  });
 
-  return c.json({ ok: true });
+  await db.run(
+    `INSERT INTO config (key, value, updated_at) VALUES ('stripe', ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = ?`,
+    [configValue, now(), configValue, now()]
+  );
+
+  return c.json({ ok: true as const }, 200);
 });
+
+export { app as setup };

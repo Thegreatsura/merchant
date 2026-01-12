@@ -1,12 +1,4 @@
 #!/usr/bin/env npx tsx
-/**
- * Init script - creates your first store
- *
- * Usage:
- *   npx tsx scripts/init.ts
- */
-
-import { execSync } from 'child_process';
 
 async function hashKey(key: string): Promise<string> {
   const data = new TextEncoder().encode(key);
@@ -25,44 +17,46 @@ function generateApiKey(prefix: 'pk' | 'sk'): string {
   return `${prefix}_${key}`;
 }
 
-function runSql(sql: string) {
-  const escaped = sql.replace(/'/g, "'\\''");
-  execSync(`npx wrangler d1 execute merchant-db --local --command='${escaped}'`, {
-    stdio: 'inherit',
-  });
-}
-
 async function init() {
-  console.log('🚀 Initializing merchant...\n');
+  const isRemote = process.argv.includes('--remote');
+  const baseUrl = isRemote 
+    ? process.env.MERCHANT_URL || 'https://merchant.your-domain.workers.dev'
+    : 'http://localhost:8787';
+  const envLabel = isRemote ? 'PRODUCTION' : 'LOCAL';
+  
+  console.log(`🚀 Initializing merchant (${envLabel})...\n`);
 
-  // Apply schema
-  console.log('📋 Applying schema...');
-  execSync('npx wrangler d1 execute merchant-db --local --file=schema-d1.sql', {
-    stdio: 'inherit',
-  });
+  if (isRemote && !process.env.MERCHANT_URL) {
+    console.log('⚠️  Set MERCHANT_URL env var for remote init, e.g.:');
+    console.log('   MERCHANT_URL=https://merchant.example.com npx tsx scripts/init.ts --remote\n');
+  }
 
-  // Create store
-  const storeId = crypto.randomUUID();
-  console.log('\n🏪 Creating store...');
-  runSql(
-    `INSERT OR IGNORE INTO stores (id, name, status) VALUES ('${storeId}', 'My Store', 'enabled')`
-  );
-
-  // Generate keys
   const publicKey = generateApiKey('pk');
   const adminKey = generateApiKey('sk');
   const publicHash = await hashKey(publicKey);
   const adminHash = await hashKey(adminKey);
+  const publicId = crypto.randomUUID();
+  const adminId = crypto.randomUUID();
 
-  console.log('🔑 Creating API keys...');
-  runSql(
-    `INSERT OR IGNORE INTO api_keys (id, store_id, key_hash, key_prefix, role) VALUES ('${crypto.randomUUID()}', '${storeId}', '${publicHash}', 'pk_', 'public')`
-  );
-  runSql(
-    `INSERT OR IGNORE INTO api_keys (id, store_id, key_hash, key_prefix, role) VALUES ('${crypto.randomUUID()}', '${storeId}', '${adminHash}', 'sk_', 'admin')`
-  );
+  console.log('🔑 Creating API keys via /v1/setup/init...');
+  
+  const response = await fetch(`${baseUrl}/v1/setup/init`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      keys: [
+        { id: publicId, key_hash: publicHash, key_prefix: 'pk_', role: 'public' },
+        { id: adminId, key_hash: adminHash, key_prefix: 'sk_', role: 'admin' },
+      ]
+    }),
+  });
 
-  console.log('\n✅ Store created!\n');
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to create API keys: ${response.status} ${error}`);
+  }
+
+  console.log('\n✅ Merchant initialized!\n');
   console.log('─'.repeat(50));
   console.log('\n🔑 API Keys (save these, shown only once):\n');
   console.log(`   Public:  ${publicKey}`);
@@ -72,14 +66,14 @@ async function init() {
   console.log('   1. Start the API:');
   console.log('      npm run dev\n');
   console.log('   2. Connect Stripe (optional for testing):');
-  console.log(`      curl -X POST http://localhost:8787/v1/setup/stripe \\`);
+  console.log(`      curl -X POST ${baseUrl}/v1/setup/stripe \\`);
   console.log(`        -H "Authorization: Bearer ${adminKey}" \\`);
   console.log(`        -H "Content-Type: application/json" \\`);
   console.log(
     `        -d '{"stripe_secret_key":"sk_test_...","stripe_webhook_secret":"whsec_..."}'\n`
   );
   console.log('   3. Seed demo data:');
-  console.log(`      npx tsx scripts/seed.ts http://localhost:8787 ${adminKey}\n`);
+  console.log(`      npx tsx scripts/seed.ts ${baseUrl} ${adminKey}\n`);
   console.log('   4. Start admin dashboard:');
   console.log('      cd admin && npm install && npm run dev\n');
 }

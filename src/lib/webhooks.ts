@@ -1,9 +1,5 @@
-import { getDb } from '../db';
-import { uuid, now, type Env } from '../types';
-
-// ============================================================
-// OUTBOUND WEBHOOK DISPATCHER
-// ============================================================
+import { getDb, type Database } from '../db';
+import { uuid, now, type DOStub } from '../types';
 
 export type WebhookEventType =
   | 'order.created'
@@ -16,16 +12,12 @@ export type WebhookPayload = {
   id: string;
   type: WebhookEventType;
   created_at: string;
-  store_id: string;
   data: Record<string, unknown>;
 };
 
 const MAX_ATTEMPTS = 3;
 const LOW_INVENTORY_THRESHOLD = 5;
 
-/**
- * Generate HMAC-SHA256 signature for webhook payload
- */
 async function signPayload(payload: string, secret: string): Promise<string> {
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
@@ -41,9 +33,6 @@ async function signPayload(payload: string, secret: string): Promise<string> {
     .join('');
 }
 
-/**
- * Generate a secure random webhook secret
- */
 export function generateWebhookSecret(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
@@ -55,36 +44,24 @@ export function generateWebhookSecret(): string {
   );
 }
 
-/**
- * Dispatch webhooks for a given event
- * Uses waitUntil for non-blocking delivery
- */
 export async function dispatchWebhooks(
-  env: Env,
+  stub: DOStub,
   ctx: ExecutionContext,
-  storeId: string,
   eventType: WebhookEventType,
   data: Record<string, unknown>
 ): Promise<void> {
-  const db = getDb(env);
+  const db = getDb(stub);
 
-  // Find active webhooks subscribed to this event
   const webhooks = await db.query<{
     id: string;
     url: string;
     events: string;
     secret: string;
-  }>(
-    `SELECT id, url, events, secret FROM webhooks 
-     WHERE store_id = ? AND status = 'active'`,
-    [storeId]
-  );
+  }>(`SELECT id, url, events, secret FROM webhooks WHERE status = 'active'`);
 
   for (const webhook of webhooks) {
     const subscribedEvents: string[] = JSON.parse(webhook.events);
 
-    // Check if webhook is subscribed to this event type
-    // Support wildcard subscriptions like 'order.*'
     const isSubscribed = subscribedEvents.some((e) => {
       if (e === '*') return true;
       if (e === eventType) return true;
@@ -97,13 +74,11 @@ export async function dispatchWebhooks(
 
     if (!isSubscribed) continue;
 
-    // Create delivery record
     const deliveryId = uuid();
     const payload: WebhookPayload = {
       id: deliveryId,
       type: eventType,
       created_at: now(),
-      store_id: storeId,
       data,
     };
 
@@ -113,25 +88,21 @@ export async function dispatchWebhooks(
       [deliveryId, webhook.id, eventType, JSON.stringify(payload), now()]
     );
 
-    // Dispatch asynchronously using waitUntil
     ctx.waitUntil(
-      deliverWebhook(env, webhook.id, webhook.url, webhook.secret, deliveryId, payload)
+      deliverWebhook(stub, webhook.id, webhook.url, webhook.secret, deliveryId, payload)
     );
   }
 }
 
-/**
- * Deliver a single webhook with retries
- */
 async function deliverWebhook(
-  env: Env,
+  stub: DOStub,
   webhookId: string,
   url: string,
   secret: string,
   deliveryId: string,
   payload: WebhookPayload
 ): Promise<void> {
-  const db = getDb(env);
+  const db = getDb(stub);
   const payloadString = JSON.stringify(payload);
   const signature = await signPayload(payloadString, secret);
   const timestamp = Math.floor(Date.now() / 1000);
@@ -142,7 +113,6 @@ async function deliverWebhook(
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      // Update attempt count
       await db.run(`UPDATE webhook_deliveries SET attempts = ?, last_attempt_at = ? WHERE id = ?`, [
         attempt,
         now(),
@@ -164,7 +134,6 @@ async function deliverWebhook(
       responseCode = response.status;
       responseBody = await response.text().catch(() => null);
 
-      // Success: 2xx status
       if (response.ok) {
         await db.run(
           `UPDATE webhook_deliveries 
@@ -175,7 +144,6 @@ async function deliverWebhook(
         return;
       }
 
-      // Non-retryable: 4xx (except 429)
       if (responseCode >= 400 && responseCode < 500 && responseCode !== 429) {
         await db.run(
           `UPDATE webhook_deliveries 
@@ -191,13 +159,11 @@ async function deliverWebhook(
       lastError = err instanceof Error ? err : new Error(String(err));
     }
 
-    // Exponential backoff before retry
     if (attempt < MAX_ATTEMPTS) {
       await new Promise((r) => setTimeout(r, Math.pow(2, attempt) * 1000));
     }
   }
 
-  // All retries exhausted
   await db.run(
     `UPDATE webhook_deliveries 
      SET status = 'failed', response_code = ?, response_body = ? 
@@ -206,30 +172,23 @@ async function deliverWebhook(
   );
 }
 
-/**
- * Check inventory levels and dispatch low stock webhooks
- */
-/**
- * Retry a single webhook delivery (called from API)
- */
 export async function retryDelivery(
-  env: Env,
+  stub: DOStub,
   webhook: { id: string; url: string; secret: string },
   delivery: { id: string; payload: string }
 ): Promise<void> {
   const payload = JSON.parse(delivery.payload);
-  await deliverWebhook(env, webhook.id, webhook.url, webhook.secret, delivery.id, payload);
+  await deliverWebhook(stub, webhook.id, webhook.url, webhook.secret, delivery.id, payload);
 }
 
 export async function checkLowInventory(
-  env: Env,
+  stub: DOStub,
   ctx: ExecutionContext,
-  storeId: string,
   sku: string,
   available: number
 ): Promise<void> {
   if (available <= LOW_INVENTORY_THRESHOLD && available >= 0) {
-    await dispatchWebhooks(env, ctx, storeId, 'inventory.low', {
+    await dispatchWebhooks(stub, ctx, 'inventory.low', {
       sku,
       available,
       threshold: LOW_INVENTORY_THRESHOLD,
@@ -237,13 +196,9 @@ export async function checkLowInventory(
   }
 }
 
-/**
- * Retry failed webhook deliveries (for cron job)
- */
-export async function retryFailedDeliveries(env: Env, ctx: ExecutionContext): Promise<number> {
-  const db = getDb(env);
+export async function retryFailedDeliveries(stub: DOStub, ctx: ExecutionContext): Promise<number> {
+  const db = getDb(stub);
 
-  // Get failed deliveries that haven't exceeded max attempts
   const failed = await db.query<{
     id: string;
     webhook_id: string;
@@ -268,12 +223,11 @@ export async function retryFailedDeliveries(env: Env, ctx: ExecutionContext): Pr
     );
 
     if (webhook) {
-      // Reset to pending for retry
       await db.run(`UPDATE webhook_deliveries SET status = 'pending' WHERE id = ?`, [delivery.id]);
 
       ctx.waitUntil(
         deliverWebhook(
-          env,
+          stub,
           delivery.webhook_id,
           webhook.url,
           webhook.secret,

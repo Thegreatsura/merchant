@@ -44,3 +44,6 @@ export function setTheme(theme: 'light' | 'dark') {
 if (typeof window !== 'undefined') {
   setTheme(getTheme());
 }
+
+
+

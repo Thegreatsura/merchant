@@ -1,36 +1,39 @@
-// ============================================================
-// TYPES
-// ============================================================
+import { type MerchantDO } from './do';
 
 export type Env = {
-  // D1 (default)
-  DB: D1Database;
-  // Postgres (optional, for scale)
-  HYPERDRIVE?: Hyperdrive;
-  DATABASE_URL?: string;
-  // R2 images
+  MERCHANT: DurableObjectNamespace<MerchantDO>;
   IMAGES?: R2Bucket;
   IMAGES_URL?: string;
+  STORE_NAME?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
 };
 
-export type Store = {
-  id: string;
-  name: string;
-  status: 'disabled' | 'enabled';
-  stripe_secret_key: string | null;
-  stripe_webhook_secret: string | null;
+export type DOStub = {
+  query: <T = unknown>(sql: string, params: unknown[]) => Promise<T[]>;
+  run: (sql: string, params: unknown[]) => Promise<{ changes: number }>;
+  broadcast: (event: { type: string; data: unknown; timestamp: string }) => void;
 };
 
-export type ApiKeyRole = 'public' | 'admin';
+export type Variables = {
+  db: DOStub;
+  auth: AuthContext;
+};
+
+export type HonoEnv = {
+  Bindings: Env;
+  Variables: Variables;
+};
+
+export type AuthRole = 'public' | 'admin' | 'oauth';
 
 export type AuthContext = {
-  store: Store;
-  role: ApiKeyRole;
+  role: AuthRole;
+  stripeSecretKey: string | null;
+  stripeWebhookSecret: string | null;
+  oauthScopes?: string[];
+  customerEmail?: string;
 };
-
-// ============================================================
-// ERRORS
-// ============================================================
 
 export class ApiError extends Error {
   constructor(
@@ -73,10 +76,6 @@ export class ApiError extends Error {
   }
 }
 
-// ============================================================
-// HELPERS
-// ============================================================
-
 export function uuid(): string {
   return crypto.randomUUID();
 }
@@ -85,15 +84,10 @@ export function now(): string {
   return new Date().toISOString();
 }
 
-/**
- * Generate a unique order number using timestamp + random suffix.
- * Format: ORD-YYMMDD-XXXX (e.g., ORD-241231-A7K2)
- * This avoids race conditions that can occur with sequential numbering.
- */
 export function generateOrderNumber(): string {
   const now = new Date();
   const datePart = now.toISOString().slice(2, 10).replace(/-/g, '');
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Removed confusing chars (0, O, 1, I)
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let suffix = '';
   for (let i = 0; i < 4; i++) {
     suffix += chars.charAt(Math.floor(Math.random() * chars.length));
@@ -101,11 +95,7 @@ export function generateOrderNumber(): string {
   return `ORD-${datePart}-${suffix}`;
 }
 
-/**
- * Validate email with a more robust check than just includes('@')
- */
 export function isValidEmail(email: string): boolean {
-  // RFC 5322 simplified - good enough for 99.9% of cases
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email);
 }

@@ -3,29 +3,37 @@
   "main": "src/index.ts",
   "compatibility_date": "2025-12-01",
 
-  "d1_databases": [
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MERCHANT",
+        "class_name": "MerchantDO"
+      }
+    ]
+  },
+
+  "migrations": [
     {
-      "binding": "DB",
-      "database_name": "merchant-db",
-      "database_id": "local",
-    },
+      "tag": "v1",
+      "new_sqlite_classes": ["MerchantDO"]
+    }
   ],
 
   "r2_buckets": [
     {
-      "binding": "IMAGES",
-    },
+      "binding": "IMAGES"
+    }
   ],
 
   "vars": {
-    "IMAGES_URL": "",
+    "IMAGES_URL": ""
   },
 
   "triggers": {
-    "crons": ["*/15 * * * *"],
+    "crons": ["*/15 * * * *"]
   },
 
   "dev": {
-    "port": 8787,
-  },
+    "port": 8787
+  }
 }

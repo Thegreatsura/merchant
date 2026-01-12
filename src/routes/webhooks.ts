@@ -1,14 +1,14 @@
 import { Hono } from 'hono';
 import Stripe from 'stripe';
 import { getDb } from '../db';
-import { ApiError, uuid, now, generateOrderNumber, type Env } from '../types';
+import { ApiError, uuid, now, generateOrderNumber, type HonoEnv } from '../types';
 import { dispatchWebhooks } from '../lib/webhooks';
 
 // ============================================================
 // WEBHOOK ROUTES
 // ============================================================
 
-export const webhooks = new Hono<{ Bindings: Env }>();
+export const webhooks = new Hono<HonoEnv>();
 
 // POST /v1/webhooks/stripe
 webhooks.post('/stripe', async (c) => {
@@ -17,29 +17,25 @@ webhooks.post('/stripe', async (c) => {
 
   if (!signature) throw ApiError.invalidRequest('Missing stripe-signature header');
 
-  let rawEvent: any;
-  try {
-    rawEvent = JSON.parse(body);
-  } catch {
-    throw ApiError.invalidRequest('Invalid JSON');
+  const db = getDb(c.var.db);
+
+  // Get stripe keys from config
+  const [config] = await db.query<any>(`SELECT * FROM config WHERE key = 'stripe'`);
+  if (!config?.value) {
+    throw ApiError.invalidRequest('Stripe not configured');
   }
 
-  const storeId = rawEvent.data?.object?.metadata?.store_id;
-  if (!storeId) throw ApiError.invalidRequest('Missing store_id in metadata');
-
-  const db = getDb(c.env);
-
-  const [store] = await db.query<any>(`SELECT * FROM stores WHERE id = ?`, [storeId]);
-  if (!store?.stripe_webhook_secret) {
-    throw ApiError.invalidRequest('Store not found or webhook secret missing');
+  const stripeConfig = JSON.parse(config.value);
+  if (!stripeConfig.webhook_secret) {
+    throw ApiError.invalidRequest('Stripe webhook secret not configured');
   }
 
   // Verify signature
-  const stripe = new Stripe(store.stripe_secret_key);
+  const stripe = new Stripe(stripeConfig.secret_key);
   let event: Stripe.Event;
 
   try {
-    event = await stripe.webhooks.constructEventAsync(body, signature, store.stripe_webhook_secret);
+    event = await stripe.webhooks.constructEventAsync(body, signature, stripeConfig.webhook_secret);
   } catch (e: any) {
     throw new ApiError('webhook_signature_invalid', 400, e.message);
   }
@@ -71,10 +67,9 @@ webhooks.post('/stripe', async (c) => {
         let discount: any = null;
 
         if (session.metadata?.discount_id) {
-          const [discountRow] = await db.query<any>(
-            `SELECT * FROM discounts WHERE id = ? AND store_id = ?`,
-            [session.metadata.discount_id, store.id]
-          );
+          const [discountRow] = await db.query<any>(`SELECT * FROM discounts WHERE id = ?`, [
+            session.metadata.discount_id,
+          ]);
 
           if (discountRow) {
             discount = discountRow;
@@ -108,8 +103,8 @@ webhooks.post('/stripe', async (c) => {
         // Upsert customer (create or update on email match)
         let customerId: string | null = null;
         const [existingCustomer] = await db.query<any>(
-          `SELECT id, order_count, total_spent_cents FROM customers WHERE store_id = ? AND email = ?`,
-          [store.id, customerEmail]
+          `SELECT id, order_count, total_spent_cents FROM customers WHERE email = ?`,
+          [customerEmail]
         );
 
         if (existingCustomer) {
@@ -130,11 +125,10 @@ webhooks.post('/stripe', async (c) => {
           // Create new customer
           customerId = uuid();
           await db.run(
-            `INSERT INTO customers (id, store_id, email, name, phone, order_count, total_spent_cents, last_order_at)
-             VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+            `INSERT INTO customers (id, email, name, phone, order_count, total_spent_cents, last_order_at)
+             VALUES (?, ?, ?, ?, 1, ?, ?)`,
             [
               customerId,
-              store.id,
               customerEmail,
               shippingName,
               shippingPhone,
@@ -182,15 +176,14 @@ webhooks.post('/stripe', async (c) => {
         // Create order (now with customer link, shipping details, and discount)
         const orderId = uuid();
         await db.run(
-          `INSERT INTO orders (id, store_id, customer_id, number, status, customer_email, 
+          `INSERT INTO orders (id, customer_id, number, status, customer_email, 
            shipping_name, shipping_phone, ship_to,
            subtotal_cents, tax_cents, shipping_cents, total_cents, currency,
            discount_code, discount_id, discount_amount_cents,
            stripe_checkout_session_id, stripe_payment_intent_id)
-           VALUES (?, ?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, 'paid', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             orderId,
-            store.id,
             customerId,
             orderNumber,
             customerEmail,
@@ -287,13 +280,13 @@ webhooks.post('/stripe', async (c) => {
           );
 
           await db.run(
-            `UPDATE inventory SET reserved = reserved - ?, on_hand = on_hand - ?, updated_at = ? WHERE store_id = ? AND sku = ?`,
-            [item.qty, item.qty, now(), store.id, item.sku]
+            `UPDATE inventory SET reserved = reserved - ?, on_hand = on_hand - ?, updated_at = ? WHERE sku = ?`,
+            [item.qty, item.qty, now(), item.sku]
           );
 
           await db.run(
-            `INSERT INTO inventory_logs (id, store_id, sku, delta, reason) VALUES (?, ?, ?, ?, 'sale')`,
-            [uuid(), store.id, item.sku, -item.qty]
+            `INSERT INTO inventory_logs (id, sku, delta, reason) VALUES (?, ?, ?, 'sale')`,
+            [uuid(), item.sku, -item.qty]
           );
         }
 
@@ -308,7 +301,7 @@ webhooks.post('/stripe', async (c) => {
         const orderItems = await db.query<any>(`SELECT * FROM order_items WHERE order_id = ?`, [
           orderId,
         ]);
-        await dispatchWebhooks(c.env, c.executionCtx, store.id, 'order.created', {
+        await dispatchWebhooks(c.var.db, c.executionCtx, 'order.created', {
           order: {
             id: orderId,
             number: orderNumber,
@@ -345,8 +338,8 @@ webhooks.post('/stripe', async (c) => {
 
   // Log event
   await db.run(
-    `INSERT INTO events (id, store_id, stripe_event_id, type, payload) VALUES (?, ?, ?, ?, ?)`,
-    [uuid(), store.id, event.id, event.type, JSON.stringify(event.data.object)]
+    `INSERT INTO events (id, stripe_event_id, type, payload) VALUES (?, ?, ?, ?)`,
+    [uuid(), event.id, event.type, JSON.stringify(event.data.object)]
   );
 
   return c.json({ ok: true });

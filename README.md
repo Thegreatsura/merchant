@@ -11,7 +11,7 @@ A lightweight, API-first backend for products, inventory, checkout, and orders�
 git clone https://github.com/ygwyg/merchant
 cd merchant && npm install
 
-# 2. Initialize (creates store + API keys)
+# 2. Initialize (creates API keys)
 npx tsx scripts/init.ts
 
 # 3. Start the API
@@ -32,17 +32,15 @@ cd admin && npm install && npm run dev
 
 ## Deploy to Cloudflare
 
-D1 and R2 are **auto-provisioned** on first deploy — no manual setup required!
+Durable Objects and R2 are **auto-provisioned** on first deploy — no manual setup required!
 
 ```bash
-# Deploy (D1 database + R2 bucket created automatically)
+# Deploy (Durable Object + R2 bucket created automatically)
 wrangler deploy
 
 # Run init script against production
 npx tsx scripts/init.ts --remote
 ```
-
-Resource IDs will be written back to `wrangler.jsonc` after deploy.
 
 ## API Reference
 
@@ -237,6 +235,63 @@ DELETE /v1/webhooks/{id}
 
 Payloads are signed with HMAC-SHA256. Verify with the `X-Merchant-Signature` header.
 
+## OAuth 2.0 / UCP (for platforms)
+
+Merchant supports OAuth 2.0 for platforms (AI agents, apps, UCP-compliant surfaces) to act on behalf of customers. **Zero configuration required** — it works out of the box.
+
+### Discovery
+
+```bash
+GET /.well-known/oauth-authorization-server
+```
+
+### Authorization Flow (PKCE required)
+
+```bash
+# 1. Redirect user to authorize
+GET /oauth/authorize?
+  client_id=your-app&
+  redirect_uri=https://your-app.com/callback&
+  response_type=code&
+  scope=openid%20profile%20checkout&
+  code_challenge=BASE64URL(SHA256(verifier))&
+  code_challenge_method=S256&
+  state=random-state
+
+# 2. User authenticates via magic link (email)
+
+# 3. Exchange code for tokens
+POST /oauth/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=authorization_code&
+code=AUTH_CODE&
+redirect_uri=https://your-app.com/callback&
+client_id=your-app&
+code_verifier=ORIGINAL_VERIFIER
+```
+
+### Scopes
+
+| Scope | Access |
+|-------|--------|
+| `openid` | Verify identity |
+| `profile` | Name and email |
+| `checkout` | Create orders on behalf of user |
+| `orders.read` | View order history |
+| `orders.write` | Manage orders |
+| `addresses.read` | Access saved addresses |
+| `addresses.write` | Manage addresses |
+
+### Using Access Tokens
+
+```bash
+curl https://your-store.com/v1/orders \
+  -H "Authorization: Bearer ACCESS_TOKEN"
+```
+
+Tokens work alongside API keys — existing integrations are unaffected.
+
 ## Stripe Webhooks
 
 Set your Stripe webhook endpoint to `https://your-domain/v1/webhooks/stripe`
@@ -287,16 +342,37 @@ Features:
 - **Webhooks** — Create endpoints, view delivery history, rotate secrets
 - Light/dark mode, collapsible sidebar
 
+## Real-time Updates (WebSocket)
+
+Connect to the WebSocket endpoint for live updates:
+
+```javascript
+const ws = new WebSocket('wss://your-store.com/ws?topics=cart,order,inventory');
+
+ws.onmessage = (event) => {
+  const { type, data, timestamp } = JSON.parse(event.data);
+  console.log(`Event: ${type}`, data);
+};
+
+// Subscribe/unsubscribe dynamically
+ws.send(JSON.stringify({ action: 'subscribe', topic: 'order' }));
+ws.send(JSON.stringify({ action: 'unsubscribe', topic: 'cart' }));
+```
+
+**Event types:** `cart.updated`, `cart.checked_out`, `order.created`, `order.updated`, `order.shipped`, `order.refunded`, `inventory.updated`, `inventory.low`
+
+**Topics:** `cart`, `order`, `inventory`, or `*` for all events.
+
 ## Architecture
 
 ```
 src/
 ├── index.ts          # Entry point, routes
-├── db.ts             # D1 database wrapper
+├── do.ts             # Durable Object with SQLite + WebSocket
+├── db.ts             # Database wrapper
 ├── types.ts          # Types and errors
-├── cron.ts           # Expired cart cleanup
 ├── middleware/
-│   └── auth.ts       # API key auth
+│   └── auth.ts       # API key + OAuth auth
 └── routes/
     ├── catalog.ts    # Products & variants
     ├── checkout.ts   # Carts & Stripe checkout
@@ -305,18 +381,47 @@ src/
     ├── customers.ts  # Customer management
     ├── images.ts     # R2 image upload
     ├── setup.ts      # Store configuration
-    └── webhooks.ts   # Stripe webhooks
+    ├── webhooks.ts   # Stripe webhooks
+    └── oauth.ts      # OAuth 2.0 / UCP support
 ```
 
 ## Stack
 
-| Component | Technology         |
-| --------- | ------------------ |
-| Runtime   | Cloudflare Workers |
-| Framework | Hono               |
-| Database  | D1 (SQLite)        |
-| Images    | R2                 |
-| Payments  | Stripe             |
+| Component | Technology                    |
+| --------- | ----------------------------- |
+| Runtime   | Cloudflare Workers            |
+| Framework | Hono                          |
+| Database  | Durable Objects (SQLite)      |
+| Real-time | WebSocket (DO native)         |
+| Images    | R2                            |
+| Payments  | Stripe                        |
+
+## Migrating from D1
+
+If you're upgrading from an older version that used D1, use the migration script:
+
+```bash
+# 1. Export your D1 data
+npx tsx scripts/migrate-d1-to-do.ts export --remote --db=merchant-db
+
+# 2. Deploy the new DO-based version
+wrangler deploy
+
+# 3. Initialize new API keys
+npx tsx scripts/init.ts --remote
+
+# 4. Import your data
+npx tsx scripts/migrate-d1-to-do.ts import --file=d1-export-xxx.json --url=https://your-store.workers.dev --key=sk_...
+```
+
+The migration imports products, variants, inventory, and discounts. Orders are exported for reference but not re-imported (they're historical records). API keys and OAuth tokens must be regenerated.
+
+## Scaling
+
+For most stores, a single Durable Object handles everything. If you outgrow it:
+
+1. **Postgres migration**: Use `schema-postgres.sql` for a traditional DB setup
+2. **Multi-DO sharding**: Split by entity type (carts, orders, inventory)
 
 ## License
 

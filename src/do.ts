@@ -1,10 +1,31 @@
--- ============================================================
--- MERCHANT DATABASE SCHEMA (D1 / SQLite)
--- Single-tenant: one database per store instance
--- Multi-tenancy handled at infrastructure layer (WFP/separate deployments)
--- ============================================================
+import { DurableObject } from 'cloudflare:workers';
 
--- API Keys
+export interface MerchantEnv {
+  MERCHANT: DurableObjectNamespace<MerchantDO>;
+  IMAGES?: R2Bucket;
+  IMAGES_URL?: string;
+  STORE_NAME?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+}
+
+export type WSEventType =
+  | 'cart.updated'
+  | 'cart.checked_out'
+  | 'order.created'
+  | 'order.updated'
+  | 'order.shipped'
+  | 'order.refunded'
+  | 'inventory.updated'
+  | 'inventory.low';
+
+export interface WSEvent {
+  type: WSEventType;
+  data: unknown;
+  timestamp: string;
+}
+
+const SCHEMA = `
 CREATE TABLE IF NOT EXISTS api_keys (
   id TEXT PRIMARY KEY,
   key_hash TEXT NOT NULL UNIQUE,
@@ -13,7 +34,6 @@ CREATE TABLE IF NOT EXISTS api_keys (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Products
 CREATE TABLE IF NOT EXISTS products (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
@@ -23,7 +43,6 @@ CREATE TABLE IF NOT EXISTS products (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Variants (SKUs)
 CREATE TABLE IF NOT EXISTS variants (
   id TEXT PRIMARY KEY,
   product_id TEXT NOT NULL REFERENCES products(id),
@@ -38,7 +57,6 @@ CREATE TABLE IF NOT EXISTS variants (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Inventory
 CREATE TABLE IF NOT EXISTS inventory (
   id TEXT PRIMARY KEY,
   sku TEXT NOT NULL UNIQUE,
@@ -47,7 +65,6 @@ CREATE TABLE IF NOT EXISTS inventory (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Inventory Logs
 CREATE TABLE IF NOT EXISTS inventory_logs (
   id TEXT PRIMARY KEY,
   sku TEXT NOT NULL,
@@ -56,7 +73,6 @@ CREATE TABLE IF NOT EXISTS inventory_logs (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Carts
 CREATE TABLE IF NOT EXISTS carts (
   id TEXT PRIMARY KEY,
   status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'checked_out', 'expired')),
@@ -71,7 +87,6 @@ CREATE TABLE IF NOT EXISTS carts (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Cart Items
 CREATE TABLE IF NOT EXISTS cart_items (
   id TEXT PRIMARY KEY,
   cart_id TEXT NOT NULL REFERENCES carts(id),
@@ -81,7 +96,6 @@ CREATE TABLE IF NOT EXISTS cart_items (
   unit_price_cents INTEGER NOT NULL
 );
 
--- Orders
 CREATE TABLE IF NOT EXISTS orders (
   id TEXT PRIMARY KEY,
   customer_id TEXT REFERENCES customers(id),
@@ -107,7 +121,6 @@ CREATE TABLE IF NOT EXISTS orders (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Order Items
 CREATE TABLE IF NOT EXISTS order_items (
   id TEXT PRIMARY KEY,
   order_id TEXT NOT NULL REFERENCES orders(id),
@@ -117,7 +130,6 @@ CREATE TABLE IF NOT EXISTS order_items (
   unit_price_cents INTEGER NOT NULL
 );
 
--- Refunds
 CREATE TABLE IF NOT EXISTS refunds (
   id TEXT PRIMARY KEY,
   order_id TEXT NOT NULL REFERENCES orders(id),
@@ -127,7 +139,6 @@ CREATE TABLE IF NOT EXISTS refunds (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Discounts
 CREATE TABLE IF NOT EXISTS discounts (
   id TEXT PRIMARY KEY,
   code TEXT UNIQUE,
@@ -147,7 +158,6 @@ CREATE TABLE IF NOT EXISTS discounts (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Discount Usage
 CREATE TABLE IF NOT EXISTS discount_usage (
   id TEXT PRIMARY KEY,
   discount_id TEXT NOT NULL REFERENCES discounts(id),
@@ -157,7 +167,6 @@ CREATE TABLE IF NOT EXISTS discount_usage (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Customers
 CREATE TABLE IF NOT EXISTS customers (
   id TEXT PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,
@@ -177,7 +186,6 @@ CREATE TABLE IF NOT EXISTS customers (
   last_order_at TEXT
 );
 
--- Customer Addresses
 CREATE TABLE IF NOT EXISTS customer_addresses (
   id TEXT PRIMARY KEY,
   customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
@@ -196,7 +204,6 @@ CREATE TABLE IF NOT EXISTS customer_addresses (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Events (webhook deduplication)
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
   stripe_event_id TEXT UNIQUE,
@@ -205,7 +212,6 @@ CREATE TABLE IF NOT EXISTS events (
   processed_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Outbound Webhooks
 CREATE TABLE IF NOT EXISTS webhooks (
   id TEXT PRIMARY KEY,
   url TEXT NOT NULL,
@@ -215,7 +221,6 @@ CREATE TABLE IF NOT EXISTS webhooks (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Webhook Deliveries
 CREATE TABLE IF NOT EXISTS webhook_deliveries (
   id TEXT PRIMARY KEY,
   webhook_id TEXT NOT NULL REFERENCES webhooks(id),
@@ -229,7 +234,6 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- OAuth Clients (auto-registered by platforms)
 CREATE TABLE IF NOT EXISTS oauth_clients (
   id TEXT PRIMARY KEY,
   client_id TEXT NOT NULL UNIQUE,
@@ -239,7 +243,6 @@ CREATE TABLE IF NOT EXISTS oauth_clients (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- OAuth Authorizations (pending auth requests)
 CREATE TABLE IF NOT EXISTS oauth_authorizations (
   id TEXT PRIMARY KEY,
   client_id TEXT NOT NULL,
@@ -257,7 +260,6 @@ CREATE TABLE IF NOT EXISTS oauth_authorizations (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- OAuth Tokens
 CREATE TABLE IF NOT EXISTS oauth_tokens (
   id TEXT PRIMARY KEY,
   client_id TEXT NOT NULL,
@@ -270,14 +272,12 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Config (key-value store for settings like Stripe keys)
 CREATE TABLE IF NOT EXISTS config (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Indexes
 CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
 CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
 CREATE INDEX IF NOT EXISTS idx_variants_sku ON variants(sku);
@@ -303,3 +303,147 @@ CREATE INDEX IF NOT EXISTS idx_oauth_authorizations_client ON oauth_authorizatio
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_access ON oauth_tokens(access_token_hash);
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_refresh ON oauth_tokens(refresh_token_hash);
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_customer ON oauth_tokens(customer_id);
+CREATE INDEX IF NOT EXISTS idx_orders_status_created ON orders(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_orders_email_created ON orders(customer_email, created_at);
+CREATE INDEX IF NOT EXISTS idx_orders_number ON orders(number);
+CREATE INDEX IF NOT EXISTS idx_variants_status ON variants(status);
+CREATE INDEX IF NOT EXISTS idx_cart_items_cart_id ON cart_items(cart_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
+CREATE INDEX IF NOT EXISTS idx_refunds_order_id ON refunds(order_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_logs_sku_created ON inventory_logs(sku, created_at);
+CREATE INDEX IF NOT EXISTS idx_customers_last_order ON customers(last_order_at);
+CREATE INDEX IF NOT EXISTS idx_customers_created_at ON customers(created_at);
+CREATE INDEX IF NOT EXISTS idx_events_stripe_event_id ON events(stripe_event_id);
+CREATE INDEX IF NOT EXISTS idx_events_type_processed ON events(type, processed_at);
+`;
+
+export class MerchantDO extends DurableObject<MerchantEnv> {
+  private sql: SqlStorage;
+  private sessions: Map<WebSocket, { topics: Set<string> }> = new Map();
+  private initialized = false;
+
+  constructor(ctx: DurableObjectState, env: MerchantEnv) {
+    super(ctx, env);
+    this.sql = ctx.storage.sql;
+  }
+
+  private ensureInitialized(): void {
+    if (this.initialized) return;
+    const statements = SCHEMA.split(';')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    for (const stmt of statements) {
+      this.sql.exec(stmt);
+    }
+    this.initialized = true;
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    this.ensureInitialized();
+
+    const url = new URL(request.url);
+
+    if (request.headers.get('Upgrade') === 'websocket') {
+      return this.handleWebSocketUpgrade(request);
+    }
+
+    if (url.pathname === '/health') {
+      return Response.json({ ok: true, storage: 'sqlite' });
+    }
+
+    return new Response('Not found', { status: 404 });
+  }
+
+  query<T = Record<string, unknown>>(sql: string, params: unknown[] = []): T[] {
+    this.ensureInitialized();
+    const cursor = this.sql.exec(sql, ...params);
+    return cursor.toArray() as T[];
+  }
+
+  run(sql: string, params: unknown[] = []): { changes: number } {
+    this.ensureInitialized();
+    this.sql.exec(sql, ...params);
+    const [result] = this.sql.exec('SELECT changes() as changes').toArray() as [{ changes: number }];
+    return { changes: result.changes };
+  }
+
+  private handleWebSocketUpgrade(request: Request): Response {
+    const url = new URL(request.url);
+    const topics = url.searchParams.get('topics')?.split(',') || ['*'];
+
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+
+    this.ctx.acceptWebSocket(server);
+    this.sessions.set(server, { topics: new Set(topics) });
+
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    try {
+      const data = JSON.parse(message as string);
+      const session = this.sessions.get(ws);
+      if (!session) return;
+
+      if (data.action === 'subscribe' && data.topic) {
+        session.topics.add(data.topic);
+      } else if (data.action === 'unsubscribe' && data.topic) {
+        session.topics.delete(data.topic);
+      }
+    } catch {}
+  }
+
+  async webSocketClose(ws: WebSocket): Promise<void> {
+    this.sessions.delete(ws);
+  }
+
+  async webSocketError(ws: WebSocket): Promise<void> {
+    this.sessions.delete(ws);
+  }
+
+  broadcast(event: WSEvent): void {
+    const message = JSON.stringify(event);
+    const eventTopic = event.type.split('.')[0];
+
+    for (const [ws, session] of this.sessions) {
+      if (session.topics.has('*') || session.topics.has(eventTopic) || session.topics.has(event.type)) {
+        try {
+          ws.send(message);
+        } catch {
+          this.sessions.delete(ws);
+        }
+      }
+    }
+  }
+
+  async cleanupExpiredCarts(): Promise<number> {
+    this.ensureInitialized();
+
+    const now = new Date().toISOString();
+
+    const expiredCarts = this.query<{ id: string }>(
+      `SELECT id FROM carts WHERE status = 'open' AND expires_at < ?`,
+      [now]
+    );
+
+    if (expiredCarts.length === 0) return 0;
+
+    const cartIds = expiredCarts.map((c) => c.id);
+    const placeholders = cartIds.map(() => '?').join(',');
+
+    const reservedItems = this.query<{ sku: string; qty: number }>(
+      `SELECT sku, SUM(qty) as qty FROM cart_items WHERE cart_id IN (${placeholders}) GROUP BY sku`,
+      cartIds
+    );
+
+    for (const item of reservedItems) {
+      this.run(`UPDATE inventory SET reserved = reserved - ? WHERE sku = ?`, [item.qty, item.sku]);
+    }
+
+    this.run(`UPDATE carts SET status = 'expired' WHERE id IN (${placeholders})`, cartIds);
+    this.run(`DELETE FROM cart_items WHERE cart_id IN (${placeholders})`, cartIds);
+
+    return expiredCarts.length;
+  }
+}

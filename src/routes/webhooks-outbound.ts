@@ -1,40 +1,54 @@
-import { Hono } from 'hono';
+import { OpenAPIHono, createRoute } from '@hono/zod-openapi';
 import { getDb } from '../db';
 import { authMiddleware, adminOnly } from '../middleware/auth';
-import { ApiError, uuid, now, type Env, type AuthContext } from '../types';
+import { ApiError, uuid, now, type HonoEnv } from '../types';
 import { generateWebhookSecret, retryDelivery } from '../lib/webhooks';
+import {
+  IdParam,
+  WebhookResponse,
+  WebhookWithSecret,
+  WebhookListResponse,
+  WebhookDetailResponse,
+  CreateWebhookBody,
+  UpdateWebhookBody,
+  WebhookDeliveryResponse,
+  DeliveryIdParam,
+  RotateSecretResponse,
+  RetryResponse,
+  ErrorResponse,
+  DeletedResponse,
+} from '../schemas';
 
-// ============================================================
-// OUTBOUND WEBHOOKS API (CRUD)
-// ============================================================
-
-const webhooksRoutes = new Hono<{
-  Bindings: Env;
-  Variables: { auth: AuthContext };
-}>();
-
-webhooksRoutes.use('*', authMiddleware, adminOnly);
-
-// Supported event types
 const VALID_EVENTS = [
   'order.created',
   'order.updated',
   'order.shipped',
   'order.refunded',
   'inventory.low',
-  'order.*', // Wildcard for all order events
-  '*', // Wildcard for all events
+  'order.*',
+  '*',
 ] as const;
 
-// GET /v1/webhooks
-webhooksRoutes.get('/', async (c) => {
-  const { store } = c.get('auth');
-  const db = getDb(c.env);
+const app = new OpenAPIHono<HonoEnv>();
 
-  const webhooks = await db.query<any>(
-    `SELECT * FROM webhooks WHERE store_id = ? ORDER BY created_at DESC`,
-    [store.id]
-  );
+app.use('*', authMiddleware);
+
+const listWebhooks = createRoute({
+  method: 'get',
+  path: '/',
+  tags: ['Webhooks'],
+  summary: 'List all webhooks',
+  security: [{ bearerAuth: [] }],
+  middleware: [adminOnly] as const,
+  responses: {
+    200: { content: { 'application/json': { schema: WebhookListResponse } }, description: 'List of webhooks' },
+  },
+});
+
+app.openapi(listWebhooks, async (c) => {
+  const db = getDb(c.var.db);
+
+  const webhooks = await db.query<any>(`SELECT * FROM webhooks ORDER BY created_at DESC`, []);
 
   return c.json({
     items: webhooks.map((w) => ({
@@ -43,26 +57,32 @@ webhooksRoutes.get('/', async (c) => {
       events: JSON.parse(w.events),
       status: w.status,
       created_at: w.created_at,
-      // Don't expose the secret, just indicate if it exists
       has_secret: Boolean(w.secret),
     })),
-  });
+  }, 200);
 });
 
-// GET /v1/webhooks/:id
-webhooksRoutes.get('/:id', async (c) => {
-  const { store } = c.get('auth');
-  const db = getDb(c.env);
-  const id = c.req.param('id');
+const getWebhook = createRoute({
+  method: 'get',
+  path: '/{id}',
+  tags: ['Webhooks'],
+  summary: 'Get webhook with recent deliveries',
+  security: [{ bearerAuth: [] }],
+  middleware: [adminOnly] as const,
+  request: { params: IdParam },
+  responses: {
+    200: { content: { 'application/json': { schema: WebhookDetailResponse } }, description: 'Webhook details with deliveries' },
+    404: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Webhook not found' },
+  },
+});
 
-  const [webhook] = await db.query<any>(`SELECT * FROM webhooks WHERE id = ? AND store_id = ?`, [
-    id,
-    store.id,
-  ]);
+app.openapi(getWebhook, async (c) => {
+  const { id } = c.req.valid('param');
+  const db = getDb(c.var.db);
 
+  const [webhook] = await db.query<any>(`SELECT * FROM webhooks WHERE id = ?`, [id]);
   if (!webhook) throw ApiError.notFound('Webhook not found');
 
-  // Get recent deliveries
   const deliveries = await db.query<any>(
     `SELECT id, event_type, status, attempts, response_code, created_at, last_attempt_at
      FROM webhook_deliveries 
@@ -88,20 +108,28 @@ webhooksRoutes.get('/:id', async (c) => {
       created_at: d.created_at,
       last_attempt_at: d.last_attempt_at,
     })),
-  });
+  }, 200);
 });
 
-// POST /v1/webhooks
-webhooksRoutes.post('/', async (c) => {
-  const body = await c.req.json();
-  const { url, events } = body;
+const createWebhook = createRoute({
+  method: 'post',
+  path: '/',
+  tags: ['Webhooks'],
+  summary: 'Create a webhook',
+  security: [{ bearerAuth: [] }],
+  middleware: [adminOnly] as const,
+  request: {
+    body: { content: { 'application/json': { schema: CreateWebhookBody } } },
+  },
+  responses: {
+    201: { content: { 'application/json': { schema: WebhookWithSecret } }, description: 'Created webhook (includes secret)' },
+    400: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Invalid request' },
+  },
+});
 
-  if (!url) throw ApiError.invalidRequest('url is required');
-  if (!events || !Array.isArray(events) || events.length === 0) {
-    throw ApiError.invalidRequest('events must be a non-empty array');
-  }
+app.openapi(createWebhook, async (c) => {
+  const { url, events } = c.req.valid('json');
 
-  // Validate URL
   try {
     const parsed = new URL(url);
     if (!['http:', 'https:'].includes(parsed.protocol)) {
@@ -111,55 +139,59 @@ webhooksRoutes.post('/', async (c) => {
     throw ApiError.invalidRequest('url must be a valid HTTP(S) URL');
   }
 
-  // Validate events
   for (const event of events) {
-    if (!VALID_EVENTS.includes(event)) {
+    if (!VALID_EVENTS.includes(event as typeof VALID_EVENTS[number])) {
       throw ApiError.invalidRequest(
         `Invalid event type: ${event}. Valid types: ${VALID_EVENTS.join(', ')}`
       );
     }
   }
 
-  const { store } = c.get('auth');
-  const db = getDb(c.env);
-
+  const db = getDb(c.var.db);
   const id = uuid();
   const secret = generateWebhookSecret();
   const timestamp = now();
 
   await db.run(
-    `INSERT INTO webhooks (id, store_id, url, events, secret, status, created_at)
-     VALUES (?, ?, ?, ?, ?, 'active', ?)`,
-    [id, store.id, url, JSON.stringify(events), secret, timestamp]
+    `INSERT INTO webhooks (id, url, events, secret, status, created_at)
+     VALUES (?, ?, ?, ?, 'active', ?)`,
+    [id, url, JSON.stringify(events), secret, timestamp]
   );
 
-  return c.json(
-    {
-      id,
-      url,
-      events,
-      status: 'active',
-      secret, // Only returned on creation!
-      created_at: timestamp,
-    },
-    201
-  );
+  return c.json({
+    id,
+    url,
+    events,
+    status: 'active' as const,
+    secret,
+    created_at: timestamp,
+  }, 201);
 });
 
-// PATCH /v1/webhooks/:id
-webhooksRoutes.patch('/:id', async (c) => {
-  const id = c.req.param('id');
-  const body = await c.req.json();
-  const { url, events, status } = body;
+const updateWebhook = createRoute({
+  method: 'patch',
+  path: '/{id}',
+  tags: ['Webhooks'],
+  summary: 'Update a webhook',
+  security: [{ bearerAuth: [] }],
+  middleware: [adminOnly] as const,
+  request: {
+    params: IdParam,
+    body: { content: { 'application/json': { schema: UpdateWebhookBody } } },
+  },
+  responses: {
+    200: { content: { 'application/json': { schema: WebhookResponse } }, description: 'Updated webhook' },
+    400: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Invalid request' },
+    404: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Webhook not found' },
+  },
+});
 
-  const { store } = c.get('auth');
-  const db = getDb(c.env);
+app.openapi(updateWebhook, async (c) => {
+  const { id } = c.req.valid('param');
+  const { url, events, status } = c.req.valid('json');
+  const db = getDb(c.var.db);
 
-  const [existing] = await db.query<any>(`SELECT * FROM webhooks WHERE id = ? AND store_id = ?`, [
-    id,
-    store.id,
-  ]);
-
+  const [existing] = await db.query<any>(`SELECT * FROM webhooks WHERE id = ?`, [id]);
   if (!existing) throw ApiError.notFound('Webhook not found');
 
   const updates: string[] = [];
@@ -179,11 +211,8 @@ webhooksRoutes.patch('/:id', async (c) => {
   }
 
   if (events !== undefined) {
-    if (!Array.isArray(events) || events.length === 0) {
-      throw ApiError.invalidRequest('events must be a non-empty array');
-    }
     for (const event of events) {
-      if (!VALID_EVENTS.includes(event)) {
+      if (!VALID_EVENTS.includes(event as typeof VALID_EVENTS[number])) {
         throw ApiError.invalidRequest(`Invalid event type: ${event}`);
       }
     }
@@ -192,9 +221,6 @@ webhooksRoutes.patch('/:id', async (c) => {
   }
 
   if (status !== undefined) {
-    if (!['active', 'disabled'].includes(status)) {
-      throw ApiError.invalidRequest('status must be active or disabled');
-    }
     updates.push('status = ?');
     params.push(status);
   }
@@ -213,69 +239,88 @@ webhooksRoutes.patch('/:id', async (c) => {
     status: updated.status,
     created_at: updated.created_at,
     has_secret: true,
-  });
+  }, 200);
 });
 
-// DELETE /v1/webhooks/:id
-webhooksRoutes.delete('/:id', async (c) => {
-  const id = c.req.param('id');
-  const { store } = c.get('auth');
-  const db = getDb(c.env);
+const deleteWebhook = createRoute({
+  method: 'delete',
+  path: '/{id}',
+  tags: ['Webhooks'],
+  summary: 'Delete a webhook',
+  security: [{ bearerAuth: [] }],
+  middleware: [adminOnly] as const,
+  request: { params: IdParam },
+  responses: {
+    200: { content: { 'application/json': { schema: DeletedResponse } }, description: 'Webhook deleted' },
+    404: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Webhook not found' },
+  },
+});
 
-  const [existing] = await db.query<any>(`SELECT * FROM webhooks WHERE id = ? AND store_id = ?`, [
-    id,
-    store.id,
-  ]);
+app.openapi(deleteWebhook, async (c) => {
+  const { id } = c.req.valid('param');
+  const db = getDb(c.var.db);
 
+  const [existing] = await db.query<any>(`SELECT * FROM webhooks WHERE id = ?`, [id]);
   if (!existing) throw ApiError.notFound('Webhook not found');
 
-  // Delete deliveries first (foreign key)
   await db.run(`DELETE FROM webhook_deliveries WHERE webhook_id = ?`, [id]);
   await db.run(`DELETE FROM webhooks WHERE id = ?`, [id]);
 
-  return c.json({ deleted: true });
+  return c.json({ deleted: true as const }, 200);
 });
 
-// POST /v1/webhooks/:id/rotate-secret
-webhooksRoutes.post('/:id/rotate-secret', async (c) => {
-  const id = c.req.param('id');
-  const { store } = c.get('auth');
-  const db = getDb(c.env);
+const rotateSecret = createRoute({
+  method: 'post',
+  path: '/{id}/rotate-secret',
+  tags: ['Webhooks'],
+  summary: 'Rotate webhook secret',
+  security: [{ bearerAuth: [] }],
+  middleware: [adminOnly] as const,
+  request: { params: IdParam },
+  responses: {
+    200: { content: { 'application/json': { schema: RotateSecretResponse } }, description: 'New secret' },
+    404: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Webhook not found' },
+  },
+});
 
-  const [existing] = await db.query<any>(`SELECT * FROM webhooks WHERE id = ? AND store_id = ?`, [
-    id,
-    store.id,
-  ]);
+app.openapi(rotateSecret, async (c) => {
+  const { id } = c.req.valid('param');
+  const db = getDb(c.var.db);
 
+  const [existing] = await db.query<any>(`SELECT * FROM webhooks WHERE id = ?`, [id]);
   if (!existing) throw ApiError.notFound('Webhook not found');
 
   const newSecret = generateWebhookSecret();
-
   await db.run(`UPDATE webhooks SET secret = ? WHERE id = ?`, [newSecret, id]);
 
-  return c.json({ secret: newSecret });
+  return c.json({ secret: newSecret }, 200);
 });
 
-// GET /v1/webhooks/:id/deliveries/:deliveryId
-webhooksRoutes.get('/:id/deliveries/:deliveryId', async (c) => {
-  const webhookId = c.req.param('id');
-  const deliveryId = c.req.param('deliveryId');
-  const { store } = c.get('auth');
-  const db = getDb(c.env);
+const getDelivery = createRoute({
+  method: 'get',
+  path: '/{id}/deliveries/{deliveryId}',
+  tags: ['Webhooks'],
+  summary: 'Get delivery details',
+  security: [{ bearerAuth: [] }],
+  middleware: [adminOnly] as const,
+  request: { params: DeliveryIdParam },
+  responses: {
+    200: { content: { 'application/json': { schema: WebhookDeliveryResponse } }, description: 'Delivery details' },
+    404: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Webhook or delivery not found' },
+  },
+});
 
-  // Verify webhook belongs to store
-  const [webhook] = await db.query<any>(`SELECT id FROM webhooks WHERE id = ? AND store_id = ?`, [
-    webhookId,
-    store.id,
-  ]);
+app.openapi(getDelivery, async (c) => {
+  const { id, deliveryId } = c.req.valid('param');
+  const db = getDb(c.var.db);
 
+  const [webhook] = await db.query<any>(`SELECT id FROM webhooks WHERE id = ?`, [id]);
   if (!webhook) throw ApiError.notFound('Webhook not found');
 
   const [delivery] = await db.query<any>(
     `SELECT * FROM webhook_deliveries WHERE id = ? AND webhook_id = ?`,
-    [deliveryId, webhookId]
+    [deliveryId, id]
   );
-
   if (!delivery) throw ApiError.notFound('Delivery not found');
 
   return c.json({
@@ -288,39 +333,41 @@ webhooksRoutes.get('/:id/deliveries/:deliveryId', async (c) => {
     response_body: delivery.response_body,
     created_at: delivery.created_at,
     last_attempt_at: delivery.last_attempt_at,
-  });
+  }, 200);
 });
 
-// POST /v1/webhooks/:id/deliveries/:deliveryId/retry
-webhooksRoutes.post('/:id/deliveries/:deliveryId/retry', async (c) => {
-  const webhookId = c.req.param('id');
-  const deliveryId = c.req.param('deliveryId');
-  const { store } = c.get('auth');
-  const db = getDb(c.env);
+const retryDeliveryRoute = createRoute({
+  method: 'post',
+  path: '/{id}/deliveries/{deliveryId}/retry',
+  tags: ['Webhooks'],
+  summary: 'Retry a failed delivery',
+  security: [{ bearerAuth: [] }],
+  middleware: [adminOnly] as const,
+  request: { params: DeliveryIdParam },
+  responses: {
+    200: { content: { 'application/json': { schema: RetryResponse } }, description: 'Retry triggered' },
+    404: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Webhook or delivery not found' },
+  },
+});
 
-  const [webhook] = await db.query<any>(`SELECT * FROM webhooks WHERE id = ? AND store_id = ?`, [
-    webhookId,
-    store.id,
-  ]);
+app.openapi(retryDeliveryRoute, async (c) => {
+  const { id, deliveryId } = c.req.valid('param');
+  const db = getDb(c.var.db);
 
+  const [webhook] = await db.query<any>(`SELECT * FROM webhooks WHERE id = ?`, [id]);
   if (!webhook) throw ApiError.notFound('Webhook not found');
 
   const [delivery] = await db.query<any>(
     `SELECT * FROM webhook_deliveries WHERE id = ? AND webhook_id = ?`,
-    [deliveryId, webhookId]
+    [deliveryId, id]
   );
-
   if (!delivery) throw ApiError.notFound('Delivery not found');
 
-  // Reset status and actually dispatch the retry
-  await db.run(`UPDATE webhook_deliveries SET status = 'pending', attempts = 0 WHERE id = ?`, [
-    deliveryId,
-  ]);
+  await db.run(`UPDATE webhook_deliveries SET status = 'pending', attempts = 0 WHERE id = ?`, [deliveryId]);
 
-  // Actually trigger the retry delivery
-  c.executionCtx.waitUntil(retryDelivery(c.env, webhook, delivery));
+  c.executionCtx.waitUntil(retryDelivery(c.var.db, webhook, delivery));
 
-  return c.json({ status: 'pending', message: 'Delivery retry triggered' });
+  return c.json({ status: 'pending', message: 'Delivery retry triggered' }, 200);
 });
 
-export { webhooksRoutes };
+export { app as webhooksRoutes };

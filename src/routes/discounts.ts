@@ -1,29 +1,22 @@
-import { Hono } from 'hono';
+import { OpenAPIHono, createRoute } from '@hono/zod-openapi';
 import Stripe from 'stripe';
 import { getDb, type Database } from '../db';
 import { authMiddleware, adminOnly } from '../middleware/auth';
-import { ApiError, uuid, now, type Env, type AuthContext } from '../types';
-
-// ============================================================
-// DISCOUNT ROUTES
-// ============================================================
-
-const discountRoutes = new Hono<{
-  Bindings: Env;
-  Variables: { auth: AuthContext };
-}>();
-
-discountRoutes.use('*', authMiddleware);
-
-// ============================================================
-// DISCOUNT VALIDATION & CALCULATION
-// ============================================================
+import { ApiError, uuid, now, type HonoEnv } from '../types';
+import {
+  IdParam,
+  DiscountResponse,
+  DiscountListResponse,
+  CreateDiscountBody,
+  UpdateDiscountBody,
+  ErrorResponse,
+  OkResponse,
+} from '../schemas';
 
 type DiscountType = 'percentage' | 'fixed_amount';
 
 export interface Discount {
   id: string;
-  store_id: string;
   code: string | null;
   type: DiscountType;
   value: number;
@@ -67,7 +60,6 @@ export async function validateDiscount(
     throw ApiError.invalidRequest('Discount usage limit reached');
   }
 
-  // Check per-customer usage limit
   if (customerEmail && discount.usage_limit_per_customer !== null) {
     const [usage] = await db.query<any>(
       `SELECT COUNT(*) as count FROM discount_usage WHERE discount_id = ? AND customer_email = ?`,
@@ -96,10 +88,6 @@ export function calculateDiscount(discount: Discount, subtotalCents: number): nu
   }
 }
 
-/**
- * Sync discount to Stripe as coupon and promotion code
- * Merchant stays source of truth - Stripe is just for checkout display
- */
 async function syncDiscountToStripe(
   stripeSecretKey: string | null,
   discount: {
@@ -115,14 +103,12 @@ async function syncDiscountToStripe(
   }
 ): Promise<{ couponId: string | null; promotionCodeId: string | null; syncError?: string }> {
   if (!stripeSecretKey) {
-    // Stripe not connected, return nulls
     return { couponId: null, promotionCodeId: null };
   }
 
   const stripe = new Stripe(stripeSecretKey);
 
   try {
-    // Create or update Stripe coupon
     let couponId = discount.stripe_coupon_id;
 
     const couponParams: Stripe.CouponCreateParams = {
@@ -131,13 +117,7 @@ async function syncDiscountToStripe(
     };
 
     if (discount.type === 'percentage') {
-      // For percentage discounts with a max_discount_cents cap, we cannot use percent_off
-      // because Stripe doesn't enforce the cap. The actual discount amount depends on
-      // the order subtotal, so we must create the coupon on-the-fly at checkout time.
-      // Return null here - the coupon will be created in checkout.ts with the correct amount.
       if (discount.max_discount_cents) {
-        // Don't create Stripe coupon here - it will be created on-the-fly at checkout
-        // with the correct capped amount based on the actual order subtotal
         return { couponId: null, promotionCodeId: null };
       }
       couponParams.percent_off = discount.value;
@@ -151,11 +131,10 @@ async function syncDiscountToStripe(
     }
 
     if (couponId) {
-      // Update existing coupon (Stripe doesn't support updating, so we delete and recreate)
       try {
         await stripe.coupons.del(couponId);
       } catch {
-        // Coupon might not exist, continue
+        // Coupon might not exist
       }
       couponId = null;
     }
@@ -163,22 +142,18 @@ async function syncDiscountToStripe(
     const coupon = await stripe.coupons.create(couponParams);
     couponId = coupon.id;
 
-    // Create or update promotion code if discount has a code
     let promotionCodeId = discount.stripe_promotion_code_id;
     const isActive = discount.status !== 'inactive';
 
     if (discount.code && isActive) {
-      // Discount has code and is active - create or recreate promotion code
-      // (Stripe doesn't support updating promotion codes, so we deactivate old and create new)
       if (promotionCodeId) {
         try {
           await stripe.promotionCodes.update(promotionCodeId, { active: false });
         } catch {
-          // Promotion code might not exist, continue
+          // Promotion code might not exist
         }
       }
 
-      // Create new active promotion code
       const promotionCode = await stripe.promotionCodes.create({
         coupon: couponId,
         code: discount.code.toUpperCase(),
@@ -187,21 +162,15 @@ async function syncDiscountToStripe(
       });
       promotionCodeId = promotionCode.id;
     } else if (promotionCodeId) {
-      // Discount is inactive or has no code - deactivate existing promotion code
-      // Keep ID in DB for reference
       try {
         await stripe.promotionCodes.update(promotionCodeId, { active: false });
       } catch {
-        // Promotion code might not exist, ignore
+        // Promotion code might not exist
       }
-      // Keep promotionCodeId (don't set to null) so we have reference to deactivated code
     }
-    // If no code and no existing promotion code, promotionCodeId stays null
 
     return { couponId, promotionCodeId };
   } catch (err: any) {
-    // If Stripe sync fails, log but don't fail discount creation
-    // Merchant is source of truth, Stripe is optional
     const errorMessage = err.message || 'Unknown error';
     console.error('Failed to sync discount to Stripe:', errorMessage);
     return {
@@ -212,19 +181,26 @@ async function syncDiscountToStripe(
   }
 }
 
-// ============================================================
-// ADMIN ENDPOINTS
-// ============================================================
+const app = new OpenAPIHono<HonoEnv>();
 
-// GET /v1/discounts
-discountRoutes.get('/', adminOnly, async (c) => {
-  const { store } = c.get('auth');
-  const db = getDb(c.env);
+app.use('*', authMiddleware);
 
-  const discounts = await db.query<any>(
-    `SELECT * FROM discounts WHERE store_id = ? ORDER BY created_at DESC`,
-    [store.id]
-  );
+const listDiscounts = createRoute({
+  method: 'get',
+  path: '/',
+  tags: ['Discounts'],
+  summary: 'List all discounts',
+  security: [{ bearerAuth: [] }],
+  middleware: [adminOnly] as const,
+  responses: {
+    200: { content: { 'application/json': { schema: DiscountListResponse } }, description: 'List of discounts' },
+  },
+});
+
+app.openapi(listDiscounts, async (c) => {
+  const db = getDb(c.var.db);
+
+  const discounts = await db.query<any>(`SELECT * FROM discounts ORDER BY created_at DESC`, []);
 
   return c.json({
     items: discounts.map((d) => ({
@@ -242,20 +218,28 @@ discountRoutes.get('/', adminOnly, async (c) => {
       usage_count: d.usage_count,
       created_at: d.created_at,
     })),
-  });
+  }, 200);
 });
 
-// GET /v1/discounts/:id
-discountRoutes.get('/:id', adminOnly, async (c) => {
-  const id = c.req.param('id');
-  const { store } = c.get('auth');
-  const db = getDb(c.env);
+const getDiscount = createRoute({
+  method: 'get',
+  path: '/{id}',
+  tags: ['Discounts'],
+  summary: 'Get discount by ID',
+  security: [{ bearerAuth: [] }],
+  middleware: [adminOnly] as const,
+  request: { params: IdParam },
+  responses: {
+    200: { content: { 'application/json': { schema: DiscountResponse } }, description: 'Discount details' },
+    404: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Discount not found' },
+  },
+});
 
-  const [discount] = await db.query<any>(`SELECT * FROM discounts WHERE id = ? AND store_id = ?`, [
-    id,
-    store.id,
-  ]);
+app.openapi(getDiscount, async (c) => {
+  const { id } = c.req.valid('param');
+  const db = getDb(c.var.db);
 
+  const [discount] = await db.query<any>(`SELECT * FROM discounts WHERE id = ?`, [id]);
   if (!discount) throw ApiError.notFound('Discount not found');
 
   return c.json({
@@ -273,12 +257,28 @@ discountRoutes.get('/:id', adminOnly, async (c) => {
     usage_count: discount.usage_count,
     created_at: discount.created_at,
     updated_at: discount.updated_at,
-  });
+  }, 200);
 });
 
-// POST /v1/discounts
-discountRoutes.post('/', adminOnly, async (c) => {
-  const body = await c.req.json();
+const createDiscount = createRoute({
+  method: 'post',
+  path: '/',
+  tags: ['Discounts'],
+  summary: 'Create a discount',
+  security: [{ bearerAuth: [] }],
+  middleware: [adminOnly] as const,
+  request: {
+    body: { content: { 'application/json': { schema: CreateDiscountBody } } },
+  },
+  responses: {
+    201: { content: { 'application/json': { schema: DiscountResponse } }, description: 'Created discount' },
+    400: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Invalid request' },
+    409: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Discount code exists' },
+  },
+});
+
+app.openapi(createDiscount, async (c) => {
+  const body = c.req.valid('json');
   const {
     code,
     type,
@@ -291,68 +291,51 @@ discountRoutes.post('/', adminOnly, async (c) => {
     usage_limit_per_customer,
   } = body;
 
-  if (!type || !['percentage', 'fixed_amount'].includes(type)) {
-    throw ApiError.invalidRequest('type must be percentage or fixed_amount');
-  }
-  if (typeof value !== 'number' || value < 0) {
-    throw ApiError.invalidRequest('value must be a non-negative number');
-  }
   if (type === 'percentage' && (value < 0 || value > 100)) {
     throw ApiError.invalidRequest('percentage value must be between 0 and 100');
   }
-  if (code && typeof code !== 'string') {
-    throw ApiError.invalidRequest('code must be a string');
-  }
 
-  const { store } = c.get('auth');
-  const db = getDb(c.env);
+  const stripeSecretKey = c.get('auth').stripeSecretKey;
+  const db = getDb(c.var.db);
 
-  // Normalize code to uppercase for consistent lookups
   const normalizedCode = code ? code.toUpperCase().trim() : null;
 
-  // Check code uniqueness if provided
   if (normalizedCode) {
-    const [existing] = await db.query<any>(
-      `SELECT id FROM discounts WHERE code = ? AND store_id = ?`,
-      [normalizedCode, store.id]
-    );
+    const [existing] = await db.query<any>(`SELECT id FROM discounts WHERE code = ?`, [normalizedCode]);
     if (existing) throw ApiError.conflict(`Discount code ${normalizedCode} already exists`);
   }
 
   const id = uuid();
   const timestamp = now();
 
-  // Sync to Stripe if connected
   let stripeCouponId = null;
   let stripePromotionCodeId = null;
 
-  if (store.stripe_secret_key) {
-    const stripeSync = await syncDiscountToStripe(store.stripe_secret_key, {
+  if (stripeSecretKey) {
+    const stripeSync = await syncDiscountToStripe(stripeSecretKey, {
       id,
       code: normalizedCode,
       type,
       value,
       max_discount_cents: max_discount_cents || null,
       expires_at: expires_at || null,
-      status: 'active', // New discounts are active by default
+      status: 'active',
       stripe_coupon_id: null,
       stripe_promotion_code_id: null,
     });
     stripeCouponId = stripeSync.couponId;
     stripePromotionCodeId = stripeSync.promotionCodeId;
 
-    // Log warning if Stripe sync failed but don't fail discount creation
     if (stripeSync.syncError) {
       console.warn(`Discount ${id} created but Stripe sync failed:`, stripeSync.syncError);
     }
   }
 
   await db.run(
-    `INSERT INTO discounts (id, store_id, code, type, value, min_purchase_cents, max_discount_cents, starts_at, expires_at, usage_limit, usage_limit_per_customer, stripe_coupon_id, stripe_promotion_code_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO discounts (id, code, type, value, min_purchase_cents, max_discount_cents, starts_at, expires_at, usage_limit, usage_limit_per_customer, stripe_coupon_id, stripe_promotion_code_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
-      store.id,
       normalizedCode,
       type,
       value,
@@ -371,30 +354,45 @@ discountRoutes.post('/', adminOnly, async (c) => {
 
   const [discount] = await db.query<any>(`SELECT * FROM discounts WHERE id = ?`, [id]);
 
-  return c.json(
-    {
-      id: discount.id,
-      code: discount.code,
-      type: discount.type,
-      value: discount.value,
-      status: discount.status,
-      min_purchase_cents: discount.min_purchase_cents,
-      max_discount_cents: discount.max_discount_cents,
-      starts_at: discount.starts_at,
-      expires_at: discount.expires_at,
-      usage_limit: discount.usage_limit,
-      usage_limit_per_customer: discount.usage_limit_per_customer,
-      usage_count: discount.usage_count,
-      created_at: discount.created_at,
-    },
-    201
-  );
+  return c.json({
+    id: discount.id,
+    code: discount.code,
+    type: discount.type,
+    value: discount.value,
+    status: discount.status,
+    min_purchase_cents: discount.min_purchase_cents,
+    max_discount_cents: discount.max_discount_cents,
+    starts_at: discount.starts_at,
+    expires_at: discount.expires_at,
+    usage_limit: discount.usage_limit,
+    usage_limit_per_customer: discount.usage_limit_per_customer,
+    usage_count: discount.usage_count,
+    created_at: discount.created_at,
+  }, 201);
 });
 
-// PATCH /v1/discounts/:id
-discountRoutes.patch('/:id', adminOnly, async (c) => {
-  const id = c.req.param('id');
-  const body = await c.req.json();
+const updateDiscount = createRoute({
+  method: 'patch',
+  path: '/{id}',
+  tags: ['Discounts'],
+  summary: 'Update a discount',
+  security: [{ bearerAuth: [] }],
+  middleware: [adminOnly] as const,
+  request: {
+    params: IdParam,
+    body: { content: { 'application/json': { schema: UpdateDiscountBody } } },
+  },
+  responses: {
+    200: { content: { 'application/json': { schema: DiscountResponse } }, description: 'Updated discount' },
+    400: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Invalid request' },
+    404: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Discount not found' },
+    409: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Discount code exists' },
+  },
+});
+
+app.openapi(updateDiscount, async (c) => {
+  const { id } = c.req.valid('param');
+  const body = c.req.valid('json');
   const {
     status,
     code,
@@ -407,36 +405,25 @@ discountRoutes.patch('/:id', adminOnly, async (c) => {
     usage_limit_per_customer,
   } = body;
 
-  const { store } = c.get('auth');
-  const db = getDb(c.env);
+  const stripeSecretKey = c.get('auth').stripeSecretKey;
+  const db = getDb(c.var.db);
 
-  const [existing] = await db.query<any>(`SELECT * FROM discounts WHERE id = ? AND store_id = ?`, [
-    id,
-    store.id,
-  ]);
+  const [existing] = await db.query<any>(`SELECT * FROM discounts WHERE id = ?`, [id]);
   if (!existing) throw ApiError.notFound('Discount not found');
 
   const updates: string[] = [];
   const params: unknown[] = [];
 
   if (status !== undefined) {
-    if (!['active', 'inactive'].includes(status)) {
-      throw ApiError.invalidRequest('status must be active or inactive');
-    }
     updates.push('status = ?');
     params.push(status);
   }
   if (code !== undefined) {
-    if (code && typeof code !== 'string') {
-      throw ApiError.invalidRequest('code must be a string');
-    }
-    // Normalize code to uppercase
     const normalizedCode = code ? code.toUpperCase().trim() : null;
-    // Check uniqueness if changing code
     if (normalizedCode && normalizedCode !== existing.code) {
       const [duplicate] = await db.query<any>(
-        `SELECT id FROM discounts WHERE code = ? AND store_id = ? AND id != ?`,
-        [normalizedCode, store.id, id]
+        `SELECT id FROM discounts WHERE code = ? AND id != ?`,
+        [normalizedCode, id]
       );
       if (duplicate) throw ApiError.conflict(`Discount code ${normalizedCode} already exists`);
     }
@@ -444,10 +431,6 @@ discountRoutes.patch('/:id', adminOnly, async (c) => {
     params.push(normalizedCode);
   }
   if (value !== undefined) {
-    if (typeof value !== 'number' || value < 0) {
-      throw ApiError.invalidRequest('value must be a non-negative number');
-    }
-    // Validate percentage range based on existing or unchanged type
     if (existing.type === 'percentage' && (value < 0 || value > 100)) {
       throw ApiError.invalidRequest('percentage value must be between 0 and 100');
     }
@@ -483,28 +466,19 @@ discountRoutes.patch('/:id', adminOnly, async (c) => {
     updates.push('updated_at = ?');
     params.push(now());
     params.push(id);
-    params.push(store.id);
 
-    await db.run(
-      `UPDATE discounts SET ${updates.join(', ')} WHERE id = ? AND store_id = ?`,
-      params
-    );
+    await db.run(`UPDATE discounts SET ${updates.join(', ')} WHERE id = ?`, params);
   }
 
-  const [discount] = await db.query<any>(`SELECT * FROM discounts WHERE id = ? AND store_id = ?`, [
-    id,
-    store.id,
-  ]);
+  const [discount] = await db.query<any>(`SELECT * FROM discounts WHERE id = ?`, [id]);
 
-  // Sync to Stripe if any Stripe-relevant fields changed
-  // (code, value, type, max_discount_cents, expires_at, status)
   const stripeRelevantFields = ['code', 'value', 'max_discount_cents', 'expires_at', 'status'];
   const shouldSyncStripe = updates.some((update) =>
     stripeRelevantFields.some((field) => update.includes(field))
   );
 
-  if (shouldSyncStripe && store.stripe_secret_key) {
-    const stripeSync = await syncDiscountToStripe(store.stripe_secret_key, {
+  if (shouldSyncStripe && stripeSecretKey) {
+    const stripeSync = await syncDiscountToStripe(stripeSecretKey, {
       id: discount.id,
       code: discount.code,
       type: discount.type,
@@ -516,12 +490,10 @@ discountRoutes.patch('/:id', adminOnly, async (c) => {
       stripe_promotion_code_id: discount.stripe_promotion_code_id,
     });
 
-    // Log warning if Stripe sync failed but don't fail discount update
     if (stripeSync.syncError) {
       console.warn(`Discount ${discount.id} updated but Stripe sync failed:`, stripeSync.syncError);
     }
 
-    // Update Stripe IDs if they changed
     if (
       stripeSync.couponId !== discount.stripe_coupon_id ||
       stripeSync.promotionCodeId !== discount.stripe_promotion_code_id
@@ -550,27 +522,33 @@ discountRoutes.patch('/:id', adminOnly, async (c) => {
     usage_count: discount.usage_count,
     created_at: discount.created_at,
     updated_at: discount.updated_at,
-  });
+  }, 200);
 });
 
-// DELETE /v1/discounts/:id (deactivate)
-discountRoutes.delete('/:id', adminOnly, async (c) => {
-  const id = c.req.param('id');
-  const { store } = c.get('auth');
-  const db = getDb(c.env);
+const deleteDiscount = createRoute({
+  method: 'delete',
+  path: '/{id}',
+  tags: ['Discounts'],
+  summary: 'Deactivate a discount',
+  security: [{ bearerAuth: [] }],
+  middleware: [adminOnly] as const,
+  request: { params: IdParam },
+  responses: {
+    200: { content: { 'application/json': { schema: OkResponse } }, description: 'Discount deactivated' },
+    404: { content: { 'application/json': { schema: ErrorResponse } }, description: 'Discount not found' },
+  },
+});
 
-  const [discount] = await db.query<any>(`SELECT * FROM discounts WHERE id = ? AND store_id = ?`, [
-    id,
-    store.id,
-  ]);
+app.openapi(deleteDiscount, async (c) => {
+  const { id } = c.req.valid('param');
+  const db = getDb(c.var.db);
+
+  const [discount] = await db.query<any>(`SELECT * FROM discounts WHERE id = ?`, [id]);
   if (!discount) throw ApiError.notFound('Discount not found');
 
-  await db.run(
-    `UPDATE discounts SET status = 'inactive', updated_at = ? WHERE id = ? AND store_id = ?`,
-    [now(), id, store.id]
-  );
+  await db.run(`UPDATE discounts SET status = 'inactive', updated_at = ? WHERE id = ?`, [now(), id]);
 
-  return c.json({ ok: true });
+  return c.json({ ok: true as const }, 200);
 });
 
-export { discountRoutes as discounts };
+export { app as discounts };

@@ -1,69 +1,95 @@
-import { Hono } from 'hono';
+import { OpenAPIHono, createRoute } from '@hono/zod-openapi';
 import { getDb } from '../db';
 import { authMiddleware, adminOnly } from '../middleware/auth';
-import { ApiError, uuid, now, type Env, type AuthContext } from '../types';
+import { ApiError, uuid, now, type HonoEnv } from '../types';
 import { checkLowInventory } from '../lib/webhooks';
+import {
+  InventoryQuery,
+  InventoryListResponse,
+  InventoryItem,
+  SkuParam,
+  AdjustInventoryBody,
+  ErrorResponse,
+} from '../schemas';
 
-// ============================================================
-// INVENTORY ROUTES
-// ============================================================
+const app = new OpenAPIHono<HonoEnv>();
 
-const inventoryRoutes = new Hono<{
-  Bindings: Env;
-  Variables: { auth: AuthContext };
-}>();
+app.use('*', authMiddleware);
 
-inventoryRoutes.use('*', authMiddleware, adminOnly);
+const listInventory = createRoute({
+  method: 'get',
+  path: '/',
+  tags: ['Inventory'],
+  summary: 'List inventory levels',
+  description: 'List all inventory levels with pagination, or get a single SKU by query param',
+  security: [{ bearerAuth: [] }],
+  middleware: [adminOnly] as const,
+  request: { query: InventoryQuery },
+  responses: {
+    200: {
+      content: {
+        'application/json': {
+          schema: InventoryListResponse,
+        },
+      },
+      description: 'List of inventory levels',
+    },
+    404: {
+      content: { 'application/json': { schema: ErrorResponse } },
+      description: 'SKU not found (when querying single SKU)',
+    },
+  },
+});
 
-// GET /v1/inventory - List inventory with pagination (optionally filter by sku)
-inventoryRoutes.get('/', async (c) => {
-  const sku = c.req.query('sku');
-  const { store } = c.get('auth');
-  const db = getDb(c.env);
+app.openapi(listInventory, async (c) => {
+  const { sku, limit: limitStr, cursor, low_stock } = c.req.valid('query');
+  const db = getDb(c.var.db);
 
-  // If sku provided, return single item (with product/variant info for consistency)
   if (sku) {
     const [level] = await db.query<any>(
       `SELECT i.*, v.title as variant_title, p.title as product_title
        FROM inventory i
-       LEFT JOIN variants v ON i.sku = v.sku AND v.store_id = i.store_id
+       LEFT JOIN variants v ON i.sku = v.sku
        LEFT JOIN products p ON v.product_id = p.id
-       WHERE i.store_id = ? AND i.sku = ?`,
-      [store.id, sku]
+       WHERE i.sku = ?`,
+      [sku]
     );
 
     if (!level) throw ApiError.notFound('SKU not found');
 
     return c.json({
-      sku: level.sku,
-      on_hand: level.on_hand,
-      reserved: level.reserved,
-      available: level.on_hand - level.reserved,
-      variant_title: level.variant_title,
-      product_title: level.product_title,
-    });
+      items: [{
+        sku: level.sku,
+        on_hand: level.on_hand,
+        reserved: level.reserved,
+        available: level.on_hand - level.reserved,
+        variant_title: level.variant_title,
+        product_title: level.product_title,
+      }],
+      pagination: { has_more: false, next_cursor: null },
+    }, 200);
   }
 
-  // Pagination params
-  const limit = Math.min(parseInt(c.req.query('limit') || '100'), 500);
-  const cursor = c.req.query('cursor');
-  const lowStock = c.req.query('low_stock') === 'true'; // Filter for low stock items
+  const limit = Math.min(parseInt(limitStr || '100'), 500);
+  const lowStock = low_stock === 'true';
 
-  // Build query with pagination
   let query = `SELECT i.*, v.title as variant_title, p.title as product_title
      FROM inventory i
-     LEFT JOIN variants v ON i.sku = v.sku AND v.store_id = i.store_id
-     LEFT JOIN products p ON v.product_id = p.id
-     WHERE i.store_id = ?`;
-  const params: unknown[] = [store.id];
+     LEFT JOIN variants v ON i.sku = v.sku
+     LEFT JOIN products p ON v.product_id = p.id`;
+  const params: unknown[] = [];
 
+  const conditions: string[] = [];
   if (lowStock) {
-    query += ` AND (i.on_hand - i.reserved) <= 10`;
+    conditions.push(`(i.on_hand - i.reserved) <= 10`);
+  }
+  if (cursor) {
+    conditions.push(`i.sku > ?`);
+    params.push(cursor);
   }
 
-  if (cursor) {
-    query += ` AND i.sku > ?`;
-    params.push(cursor);
+  if (conditions.length > 0) {
+    query += ` WHERE ${conditions.join(' AND ')}`;
   }
 
   query += ` ORDER BY i.sku LIMIT ?`;
@@ -71,7 +97,6 @@ inventoryRoutes.get('/', async (c) => {
 
   const items = await db.query<any>(query, params);
 
-  // Check for next page
   const hasMore = items.length > limit;
   if (hasMore) items.pop();
 
@@ -90,66 +115,73 @@ inventoryRoutes.get('/', async (c) => {
       has_more: hasMore,
       next_cursor: nextCursor,
     },
-  });
+  }, 200);
 });
 
-// POST /v1/inventory/:sku/adjust
-inventoryRoutes.post('/:sku/adjust', async (c) => {
-  const sku = c.req.param('sku');
-  const body = await c.req.json();
-  const { delta, reason } = body;
+const adjustInventory = createRoute({
+  method: 'post',
+  path: '/{sku}/adjust',
+  tags: ['Inventory'],
+  summary: 'Adjust inventory level',
+  description: 'Add or subtract inventory for a SKU with a reason',
+  security: [{ bearerAuth: [] }],
+  middleware: [adminOnly] as const,
+  request: {
+    params: SkuParam,
+    body: { content: { 'application/json': { schema: AdjustInventoryBody } } },
+  },
+  responses: {
+    200: {
+      content: { 'application/json': { schema: InventoryItem } },
+      description: 'Updated inventory level',
+    },
+    400: {
+      content: { 'application/json': { schema: ErrorResponse } },
+      description: 'Invalid request (e.g., would go below 0)',
+    },
+    404: {
+      content: { 'application/json': { schema: ErrorResponse } },
+      description: 'SKU not found',
+    },
+  },
+});
 
-  if (typeof delta !== 'number') throw ApiError.invalidRequest('delta is required');
-  if (!['restock', 'correction', 'damaged', 'return'].includes(reason)) {
-    throw ApiError.invalidRequest('reason must be restock, correction, damaged, or return');
-  }
+app.openapi(adjustInventory, async (c) => {
+  const { sku } = c.req.valid('param');
+  const { delta, reason } = c.req.valid('json');
+  const db = getDb(c.var.db);
 
-  const { store } = c.get('auth');
-  const db = getDb(c.env);
-
-  // Check exists
-  const [existing] = await db.query<any>(`SELECT * FROM inventory WHERE store_id = ? AND sku = ?`, [
-    store.id,
-    sku,
-  ]);
+  const [existing] = await db.query<any>(`SELECT * FROM inventory WHERE sku = ?`, [sku]);
   if (!existing) throw ApiError.notFound('SKU not found');
 
-  // Prevent negative inventory
   if (delta < 0 && existing.on_hand + delta < 0) {
     throw ApiError.invalidRequest(
       `Cannot reduce inventory below 0. Current on_hand: ${existing.on_hand}`
     );
   }
 
-  // Update
   await db.run(
-    `UPDATE inventory SET on_hand = on_hand + ?, updated_at = ? WHERE store_id = ? AND sku = ?`,
-    [delta, now(), store.id, sku]
+    `UPDATE inventory SET on_hand = on_hand + ?, updated_at = ? WHERE sku = ?`,
+    [delta, now(), sku]
   );
 
-  // Log
   await db.run(
-    `INSERT INTO inventory_logs (id, store_id, sku, delta, reason) VALUES (?, ?, ?, ?, ?)`,
-    [uuid(), store.id, sku, delta, reason]
+    `INSERT INTO inventory_logs (id, sku, delta, reason) VALUES (?, ?, ?, ?)`,
+    [uuid(), sku, delta, reason]
   );
 
-  // Fetch updated
-  const [level] = await db.query<any>(`SELECT * FROM inventory WHERE store_id = ? AND sku = ?`, [
-    store.id,
-    sku,
-  ]);
+  const [level] = await db.query<any>(`SELECT * FROM inventory WHERE sku = ?`, [sku]);
 
   const available = level.on_hand - level.reserved;
 
-  // Check for low inventory and dispatch webhook if needed
-  await checkLowInventory(c.env, c.executionCtx, store.id, sku, available);
+  await checkLowInventory(c.var.db, c.executionCtx, sku, available);
 
   return c.json({
     sku: level.sku,
     on_hand: level.on_hand,
     reserved: level.reserved,
     available,
-  });
+  }, 200);
 });
 
-export { inventoryRoutes as inventory };
+export { app as inventory };

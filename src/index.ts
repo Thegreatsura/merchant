@@ -1,5 +1,6 @@
-import { Hono } from 'hono';
+import { OpenAPIHono } from '@hono/zod-openapi';
 import { cors } from 'hono/cors';
+import { swaggerUI } from '@hono/swagger-ui';
 import { setup } from './routes/setup';
 import { catalog } from './routes/catalog';
 import { inventory } from './routes/inventory';
@@ -10,22 +11,30 @@ import { webhooks } from './routes/webhooks';
 import { webhooksRoutes } from './routes/webhooks-outbound';
 import { images } from './routes/images';
 import { discounts } from './routes/discounts';
-import { handleCron } from './cron';
+import { oauth } from './routes/oauth';
 import { rateLimitMiddleware } from './middleware/rate-limit';
-import { ApiError, type Env } from './types';
+import { ApiError, type Env, type DOStub } from './types';
+import { MerchantDO } from './do';
 
-// ============================================================
-// MERCHANT API
-// ============================================================
+export { MerchantDO };
 
-const app = new Hono<{ Bindings: Env }>();
+type Variables = {
+  db: DOStub;
+};
+
+const app = new OpenAPIHono<{ Bindings: Env; Variables: Variables }>();
 
 app.use('*', cors());
 
-// Rate limiting (applied to all routes except health check)
+app.use('*', async (c, next) => {
+  const id = c.env.MERCHANT.idFromName('default');
+  const stub = c.env.MERCHANT.get(id);
+  c.set('db', stub as unknown as DOStub);
+  await next();
+});
+
 app.use('/v1/*', rateLimitMiddleware());
 
-// Error handler
 app.onError((err, c) => {
   console.error(err);
 
@@ -45,24 +54,39 @@ app.onError((err, c) => {
   return c.json({ error: { code: 'internal', message: 'Internal server error' } }, 500);
 });
 
-// Health
 app.get('/', (c) => c.json({ name: 'merchant', version: '0.1.0', ok: true }));
 
-// Routes
 app.route('/v1/setup', setup);
 app.route('/v1/products', catalog);
 app.route('/v1/inventory', inventory);
 app.route('/v1/carts', checkout);
 app.route('/v1/orders', orders);
 app.route('/v1/customers', customers);
-app.route('/v1/webhooks', webhooks); // Stripe incoming webhooks
-app.route('/v1/webhooks', webhooksRoutes); // Outbound webhook management
+app.route('/v1/webhooks', webhooks);
+app.route('/v1/webhooks', webhooksRoutes);
 app.route('/v1/images', images);
 app.route('/v1/discounts', discounts);
+app.route('/oauth', oauth);
+app.route('', oauth);
+
+app.doc('/openapi.json', {
+  openapi: '3.0.0',
+  info: {
+    title: 'Merchant API',
+    version: '1.0.0',
+    description: 'The open-source commerce backend for Cloudflare + Stripe',
+  },
+  servers: [{ url: '/' }],
+});
+
+app.get('/docs', swaggerUI({ url: '/openapi.json' }));
 
 export default {
   fetch: app.fetch,
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(handleCron(env, ctx));
+    const id = env.MERCHANT.idFromName('default');
+    const stub = env.MERCHANT.get(id);
+    const cleaned = await (stub as unknown as { cleanupExpiredCarts: () => Promise<number> }).cleanupExpiredCarts();
+    console.log(`Cron: cleaned ${cleaned} expired carts`);
   },
 };

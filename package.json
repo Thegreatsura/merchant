@@ -7,30 +7,18 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "db:init": "wrangler d1 execute DB --file=schema-d1.sql --local",
-    "db:seed": "npx tsx scripts/seed.ts",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "typecheck": "tsc --noEmit"
+    "db:seed": "npx tsx scripts/seed.ts"
   },
   "dependencies": {
+    "@hono/swagger-ui": "^0.5.3",
+    "@hono/zod-openapi": "^0.18.3",
     "hono": "^4.6.0",
     "stripe": "^17.0.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241205.0",
-    "@eslint/js": "^9.17.0",
-    "eslint": "^9.17.0",
-    "globals": "^17.0.0",
-    "prettier": "^3.4.2",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
-    "typescript-eslint": "^8.18.2",
-    "vitest": "^2.1.8",
     "wrangler": "^4.45.0"
   }
 }
